@@ -1,48 +1,81 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('../config/database');
+const { DataTypes } = require("sequelize");
+const sequelize = require("../config/database");
 
-const User = sequelize.define('User', {
+const User = sequelize.define("User", {
   username: {
     type: DataTypes.STRING,
     allowNull: false,
     unique: true,
     validate: {
       notEmpty: true,
-      len: [3, 30]
-    }
+      len: [3, 30],
+    },
   },
   email: {
     type: DataTypes.STRING,
     allowNull: false,
     unique: true,
     validate: {
-      isEmail: true
-    }
+      isEmail: true,
+    },
   },
   password: {
     type: DataTypes.STRING,
     allowNull: false,
     validate: {
       notEmpty: true,
-      len: [6, 100]
-    }
-  }
+      len: [6, 100],
+    },
+  },
 });
 
-const Group = sequelize.define('Group', {
+const Group = sequelize.define("Group", {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
-    autoIncrement: true
+    autoIncrement: true,
   },
   name: {
     type: DataTypes.STRING(100),
-    allowNull: false
+    allowNull: false,
   },
   createdAt: {
     type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW
-  }
+    defaultValue: DataTypes.NOW,
+  },
+});
+
+const Movie = sequelize.define("Movie", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  name: {
+    type: DataTypes.STRING(100),
+    allowNull: false,
+  },
+  imgLink: DataTypes.TEXT,
+  actors: DataTypes.TEXT,
+  rating: DataTypes.FLOAT,
+  length: DataTypes.INTEGER,
+  yearReleased: DataTypes.INTEGER,
+  description: DataTypes.TEXT,
+});
+
+const GroupInvite = sequelize.define("GroupInvite", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  status: {
+    type: DataTypes.ENUM("pending", "accepted", "rejected"),
+    defaultValue: "pending",
+  },
+  expiresAt: {
+    type: DataTypes.DATE,
+  },
 });
 
 const MovieMonday = sequelize.define('MovieMonday', {
@@ -55,79 +88,129 @@ const MovieMonday = sequelize.define('MovieMonday', {
     type: DataTypes.DATE,
     allowNull: false
   },
-  meal: DataTypes.TEXT,
-  dessert: DataTypes.TEXT,
-  drinks: DataTypes.TEXT,
+  pickerUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'Users',
+      key: 'id'
+    }
+  },
   status: {
-    type: DataTypes.ENUM('planned', 'in-progress', 'completed'),
-    defaultValue: 'planned'
+    type: DataTypes.ENUM('pending', 'in-progress', 'completed'),
+    defaultValue: 'pending'
   }
+}, {
+  tableName: 'MovieMondays', // Explicitly set table name
+  timestamps: true
 });
 
-const Movie = sequelize.define('Movie', {
+const MovieSelection = sequelize.define('MovieSelection', {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
     autoIncrement: true
   },
-  name: {
-    type: DataTypes.STRING(100),
+  movieMondayId: {
+    type: DataTypes.INTEGER,
     allowNull: false
   },
-  imgLink: DataTypes.TEXT,
-  actors: DataTypes.TEXT,
-  rating: DataTypes.FLOAT,
-  length: DataTypes.INTEGER,
-  yearReleased: DataTypes.INTEGER,
-  description: DataTypes.TEXT
+  tmdbMovieId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  title: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  posterPath: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  isWinner: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  }
+}, {
+  tableName: 'MovieSelections', // Explicitly set table name
+  timestamps: true
 });
 
-const GroupInvite = sequelize.define('GroupInvite', {
+const WatchLater = sequelize.define('WatchLater', {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
     autoIncrement: true
   },
-  status: {
-    type: DataTypes.ENUM('pending', 'accepted', 'rejected'),
-    defaultValue: 'pending'
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
   },
-  expiresAt: {
-    type: DataTypes.DATE
+  tmdbMovieId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  title: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  posterPath: {
+    type: DataTypes.STRING,
+    allowNull: true
   }
+}, {
+  tableName: 'WatchLaters', // Explicitly set table name
+  timestamps: true
 });
 
-// Add relationships
-GroupInvite.belongsTo(User, { as: 'invitedBy' });
-GroupInvite.belongsTo(User, { as: 'invitedUser' });
+
+// Group Invite relationships
+GroupInvite.belongsTo(User, { as: "invitedBy" });
+GroupInvite.belongsTo(User, { as: "invitedUser" });
 GroupInvite.belongsTo(Group);
 
-// Define relationships
-Group.belongsTo(User, { 
-  as: 'createdBy',
+// Group relationships
+Group.belongsTo(User, {
+  as: "createdBy",
   foreignKey: {
-    allowNull: false
-  }
+    allowNull: false,
+  },
 });
 
+// Group-User many-to-many relationship
+User.belongsToMany(Group, { through: "GroupMembers" });
+Group.belongsToMany(User, { through: "GroupMembers" });
+
+// MovieMonday relationships
 MovieMonday.belongsTo(Group, {
   foreignKey: {
-    allowNull: false
+    allowNull: false,
   },
-  onDelete: 'CASCADE'
+  onDelete: "CASCADE",
 });
 
-MovieMonday.belongsTo(User, { 
-  as: 'picker',
-  foreignKey: {
-    allowNull: false
-  }
+MovieMonday.belongsTo(User, {
+  foreignKey: 'pickerUserId',
+  as: 'picker'
 });
 
-User.belongsToMany(Group, { through: 'GroupMembers' });
-Group.belongsToMany(User, { through: 'GroupMembers' });
-MovieMonday.belongsToMany(Movie, { through: 'MovieSelections' });
-Movie.belongsToMany(MovieMonday, { through: 'MovieSelections' });
+// MovieSelection relationships (remove the belongsToMany and use hasMany/belongsTo)
+MovieMonday.hasMany(MovieSelection, {
+  foreignKey: 'movieMondayId',
+  as: 'movieSelections'
+});
+MovieSelection.belongsTo(MovieMonday, {
+  foreignKey: 'movieMondayId'
+});
+
+// WatchLater relationships
+User.hasMany(WatchLater, {
+  foreignKey: 'userId',
+  as: 'watchLaterMovies'
+});
+WatchLater.belongsTo(User, {
+  foreignKey: 'userId'
+});
 
 module.exports = {
   User,
@@ -135,5 +218,6 @@ module.exports = {
   MovieMonday,
   Movie,
   GroupInvite,
-  sequelize
+  WatchLater,
+  sequelize,
 };

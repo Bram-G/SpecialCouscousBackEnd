@@ -25,7 +25,7 @@ const groupsRouter = require('./routes/groups');
 
 // Route middleware
 app.use('/auth', authRoutes);
-app.use('/movie-monday', movieMondayRoutes);
+app.use('/api/movie-monday', movieMondayRoutes);
 app.use('/api', groupsRouter);
 
 // Error handling middleware - should be after routes
@@ -44,7 +44,7 @@ const PORT = process.env.PORT || 8000;
 const { sequelize } = require('./models');
 
 // Database connection and server startup
-sequelize.sync().then(() => {
+sequelize.sync({ alter: true }).then(() => {
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });

@@ -9,7 +9,7 @@ const { JWT_SECRET } = process.env;
 router.get('/users/group', auth, async (req, res) => {
   try {
     const user = req.user;
-    console.log('User from auth middleware:', user);
+    // console.log('User from auth middleware:', user);
     const userWithGroup = await User.findOne({
       where: { id: user.id },
       include: [{
@@ -21,7 +21,7 @@ router.get('/users/group', auth, async (req, res) => {
       }]
     });
 
-    console.log('User with group:', userWithGroup);
+    // console.log('User with group:', userWithGroup);
 
     if (!userWithGroup?.Groups?.length) {
       return res.json(null);
