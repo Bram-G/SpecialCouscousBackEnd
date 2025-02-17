@@ -2,24 +2,30 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../config/database');
 
 const User = sequelize.define('User', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
   username: {
-    type: DataTypes.STRING(50),
+    type: DataTypes.STRING,
+    allowNull: false,
     unique: true,
-    allowNull: false
+    validate: {
+      notEmpty: true,
+      len: [3, 30]
+    }
   },
   email: {
-    type: DataTypes.STRING(100),
+    type: DataTypes.STRING,
+    allowNull: false,
     unique: true,
-    allowNull: false
+    validate: {
+      isEmail: true
+    }
   },
   password: {
-    type: DataTypes.STRING(128),
-    allowNull: false
+    type: DataTypes.STRING,
+    allowNull: false,
+    validate: {
+      notEmpty: true,
+      len: [6, 100]
+    }
   }
 });
 
@@ -32,6 +38,10 @@ const Group = sequelize.define('Group', {
   name: {
     type: DataTypes.STRING(100),
     allowNull: false
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    defaultValue: DataTypes.NOW
   }
 });
 
@@ -47,7 +57,11 @@ const MovieMonday = sequelize.define('MovieMonday', {
   },
   meal: DataTypes.TEXT,
   dessert: DataTypes.TEXT,
-  drinks: DataTypes.TEXT
+  drinks: DataTypes.TEXT,
+  status: {
+    type: DataTypes.ENUM('planned', 'in-progress', 'completed'),
+    defaultValue: 'planned'
+  }
 });
 
 const Movie = sequelize.define('Movie', {
@@ -68,12 +82,50 @@ const Movie = sequelize.define('Movie', {
   description: DataTypes.TEXT
 });
 
+const GroupInvite = sequelize.define('GroupInvite', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  status: {
+    type: DataTypes.ENUM('pending', 'accepted', 'rejected'),
+    defaultValue: 'pending'
+  },
+  expiresAt: {
+    type: DataTypes.DATE
+  }
+});
+
+// Add relationships
+GroupInvite.belongsTo(User, { as: 'invitedBy' });
+GroupInvite.belongsTo(User, { as: 'invitedUser' });
+GroupInvite.belongsTo(Group);
+
 // Define relationships
+Group.belongsTo(User, { 
+  as: 'createdBy',
+  foreignKey: {
+    allowNull: false
+  }
+});
+
+MovieMonday.belongsTo(Group, {
+  foreignKey: {
+    allowNull: false
+  },
+  onDelete: 'CASCADE'
+});
+
+MovieMonday.belongsTo(User, { 
+  as: 'picker',
+  foreignKey: {
+    allowNull: false
+  }
+});
+
 User.belongsToMany(Group, { through: 'GroupMembers' });
 Group.belongsToMany(User, { through: 'GroupMembers' });
-Group.belongsTo(User, { as: 'createdBy' });
-MovieMonday.belongsTo(Group);
-MovieMonday.belongsTo(User, { as: 'picker' });
 MovieMonday.belongsToMany(Movie, { through: 'MovieSelections' });
 Movie.belongsToMany(MovieMonday, { through: 'MovieSelections' });
 
@@ -82,5 +134,6 @@ module.exports = {
   Group,
   MovieMonday,
   Movie,
+  GroupInvite,
   sequelize
 };
