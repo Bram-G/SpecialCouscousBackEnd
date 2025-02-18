@@ -90,19 +90,18 @@ const MovieMonday = sequelize.define('MovieMonday', {
   },
   pickerUserId: {
     type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
+    allowNull: false
+  },
+  GroupId: {  // Note the capital G
+    type: DataTypes.INTEGER,
+    allowNull: false
   },
   status: {
-    type: DataTypes.ENUM('pending', 'in-progress', 'completed'),
+    type: DataTypes.ENUM('not_created', 'pending', 'in-progress', 'completed'),
     defaultValue: 'pending'
   }
 }, {
-  tableName: 'MovieMondays', // Explicitly set table name
-  timestamps: true
+  tableName: 'MovieMondays'
 });
 
 const MovieSelection = sequelize.define('MovieSelection', {
@@ -213,11 +212,12 @@ WatchLater.belongsTo(User, {
 });
 
 module.exports = {
-  User,
-  Group,
   MovieMonday,
+  MovieSelection,
+  User,
+  WatchLater,
+  Group,
   Movie,
   GroupInvite,
-  WatchLater,
   sequelize,
 };
