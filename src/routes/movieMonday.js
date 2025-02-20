@@ -130,26 +130,36 @@ router.post('/add-movie', authMiddleware, async (req, res) => {
 
 router.put('/update-picker', authMiddleware, async (req, res) => {
   try {
-    const { date, pickerId } = req.body;
+    const { movieMondayId, pickerUserId } = req.body;
     
     const movieMonday = await MovieMonday.findOne({
-      where: {
-        date: new Date(date)
-      }
+      where: { id: movieMondayId }
     });
 
     if (!movieMonday) {
       return res.status(404).json({ message: 'Movie Monday not found' });
     }
 
-    movieMonday.pickerUserId = pickerId;
+    movieMonday.pickerUserId = pickerUserId;
     await movieMonday.save();
 
-    res.json(movieMonday);
+    // Fetch updated data with picker info
+    const updatedMovieMonday = await MovieMonday.findOne({
+      where: { id: movieMondayId },
+      include: [{
+        model: User,
+        as: 'picker',
+        attributes: ['id', 'username']
+      }]
+    });
+
+    res.json(updatedMovieMonday);
   } catch (error) {
-    res.status(400).json({ message: error.message });
+    console.error('Error updating picker:', error);
+    res.status(500).json({ message: error.message });
   }
 });
+
 
 
 // Get user's watch later list
@@ -476,9 +486,6 @@ router.post('/add-movie', authMiddleware, async (req, res) => {
   }
 });
 
-
-
-// Set winning movie
 router.post('/:id/set-winner', authMiddleware, async (req, res) => {
   try {
     const { movieSelectionId } = req.body;
@@ -496,7 +503,8 @@ router.post('/:id/set-winner', authMiddleware, async (req, res) => {
       },
       include: [
         {
-          model: MovieSelection
+          model: MovieSelection,
+          as: 'movieSelections'
         }
       ]
     });
@@ -507,15 +515,7 @@ router.post('/:id/set-winner', authMiddleware, async (req, res) => {
       });
     }
 
-    // Verify user is the picker
-    if (movieMonday.pickerUserId !== req.user.id) {
-      return res.status(403).json({ 
-        message: 'Only the assigned picker can set the winner' 
-      });
-    }
-
-    // Verify movie selection exists and belongs to this movie monday
-    const movieSelection = movieMonday.MovieSelections.find(
+    const movieSelection = movieMonday.movieSelections.find(
       ms => ms.id === movieSelectionId
     );
 
@@ -523,45 +523,46 @@ router.post('/:id/set-winner', authMiddleware, async (req, res) => {
       return res.status(404).json({ message: 'Movie selection not found' });
     }
 
-    // Use transaction to ensure data consistency
     await sequelize.transaction(async (t) => {
-      // Reset all winners for this movie monday
-      await MovieSelection.update(
-        { isWinner: false },
-        { 
-          where: { movieMondayId: movieMonday.id },
-          transaction: t
-        }
-      );
-
-      // Set new winner
-      await MovieSelection.update(
-        { isWinner: true },
-        { 
-          where: { 
-            id: movieSelectionId,
-            movieMondayId: movieMonday.id // Extra safety check
-          },
-          transaction: t
-        }
-      );
-
-      // Update movie monday status
-      movieMonday.status = 'completed';
+      // If this movie is already the winner, we're removing winner status
+      if (movieSelection.isWinner) {
+        await MovieSelection.update(
+          { isWinner: false },
+          { 
+            where: { id: movieSelectionId },
+            transaction: t
+          }
+        );
+        movieMonday.status = 'in-progress';
+      } else {
+        // Setting new winner
+        await MovieSelection.update(
+          { isWinner: false },
+          { 
+            where: { movieMondayId: movieMonday.id },
+            transaction: t
+          }
+        );
+        await MovieSelection.update(
+          { isWinner: true },
+          { 
+            where: { id: movieSelectionId },
+            transaction: t
+          }
+        );
+        movieMonday.status = 'completed';
+      }
       await movieMonday.save({ transaction: t });
     });
 
     res.json({ 
-      message: 'Winner set successfully',
+      message: 'Winner status updated successfully',
       movieMondayId: movieMonday.id,
-      winningMovieId: movieSelectionId
+      winningMovieId: movieSelection.isWinner ? null : movieSelectionId
     });
   } catch (error) {
-    console.error('Error setting winner:', error);
-    res.status(500).json({ 
-      message: 'Failed to set winner',
-      error: error.message 
-    });
+    console.error('Error updating winner:', error);
+    res.status(500).json({ message: 'Failed to update winner' });
   }
 });
 
