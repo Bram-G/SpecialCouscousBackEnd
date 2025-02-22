@@ -1,11 +1,12 @@
+// migrations/20250221000002-create-movie-tables.js
 'use strict';
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    // First, add the status enum type
+    // Create enum type first
     await queryInterface.sequelize.query(`
       DO $$ BEGIN
-        CREATE TYPE "enum_movie_monday_status" AS ENUM ('pending', 'in-progress', 'completed');
+        CREATE TYPE enum_moviemondays_status AS ENUM ('pending', 'in-progress', 'completed');
       EXCEPTION
         WHEN duplicate_object THEN null;
       END $$;
@@ -30,7 +31,7 @@ module.exports = {
           key: 'id'
         }
       },
-      GroupId: {  // Changed from groupId to GroupId to match Sequelize convention
+      GroupId: {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
@@ -40,7 +41,7 @@ module.exports = {
         onDelete: 'CASCADE'
       },
       status: {
-        type: 'enum_movie_monday_status',
+        type: "enum_moviemondays_status",
         defaultValue: 'pending'
       },
       createdAt: {
@@ -139,13 +140,14 @@ module.exports = {
       }
     });
 
-    // Add unique constraints
+    // Add constraints
     await queryInterface.addConstraint('MovieMondays', {
-      fields: ['GroupId', 'date'],  // Changed from groupId to GroupId
+      fields: ['GroupId', 'date'],
       type: 'unique',
       name: 'unique_date_per_group'
     });
 
+    // Add unique constraint for user and movie combination
     await queryInterface.addConstraint('WatchLater', {
       fields: ['userId', 'tmdbMovieId'],
       type: 'unique',
@@ -154,16 +156,10 @@ module.exports = {
   },
 
   down: async (queryInterface, Sequelize) => {
-    // Remove constraints first
-    await queryInterface.removeConstraint('MovieMondays', 'unique_date_per_group');
-    await queryInterface.removeConstraint('WatchLater', 'unique_user_movie');
-
     // Drop tables in reverse order
     await queryInterface.dropTable('WatchLater');
     await queryInterface.dropTable('MovieSelections');
     await queryInterface.dropTable('MovieMondays');
-    
-    // Drop the enum type
-    await queryInterface.sequelize.query(`DROP TYPE IF EXISTS "enum_movie_monday_status";`);
+    await queryInterface.sequelize.query('DROP TYPE IF EXISTS enum_moviemondays_status;');
   }
 };

@@ -17,7 +17,7 @@ const sequelize = new Sequelize({
   }
 });
 
-// Test the connection
+// Test the connection but don't sync
 async function testConnection() {
   try {
     await sequelize.authenticate();

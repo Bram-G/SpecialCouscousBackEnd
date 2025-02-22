@@ -41,13 +41,6 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 8000;
 
-const { sequelize } = require('./models');
-
-// Database connection and server startup
-sequelize.sync({ alter: true }).then(() => {
-  app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-  });
-}).catch(error => {
-  console.error('Unable to connect to the database:', error);
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });

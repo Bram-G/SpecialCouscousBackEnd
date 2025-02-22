@@ -39,10 +39,18 @@ const Group = sequelize.define("Group", {
     type: DataTypes.STRING(100),
     allowNull: false,
   },
+  createdById: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'Users',
+      key: 'id'
+    }
+  },
   createdAt: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
-  },
+  }
 });
 
 const Movie = sequelize.define("Movie", {
@@ -63,19 +71,43 @@ const Movie = sequelize.define("Movie", {
   description: DataTypes.TEXT,
 });
 
-const GroupInvite = sequelize.define("GroupInvite", {
+const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
-    autoIncrement: true,
+    autoIncrement: true
   },
-  status: {
-    type: DataTypes.ENUM("pending", "accepted", "rejected"),
-    defaultValue: "pending",
+  movieMondayId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: 'MovieMondays',
+      key: 'id'
+    }
   },
-  expiresAt: {
-    type: DataTypes.DATE,
+  meals: {
+    type: DataTypes.TEXT,
+    allowNull: true
   },
+  cocktails: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const rawValue = this.getDataValue('cocktails');
+      return rawValue ? rawValue.split(',').map(item => item.trim()) : [];
+    },
+    set(val) {
+      if (Array.isArray(val)) {
+        this.setDataValue('cocktails', val.join(','));
+      } else {
+        this.setDataValue('cocktails', val);
+      }
+    }
+  },
+  notes: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  }
 });
 
 const MovieMonday = sequelize.define('MovieMonday', {
@@ -92,13 +124,16 @@ const MovieMonday = sequelize.define('MovieMonday', {
     type: DataTypes.INTEGER,
     allowNull: false
   },
-  GroupId: {  // Note the capital G
+  GroupId: {
     type: DataTypes.INTEGER,
     allowNull: false
   },
   status: {
-    type: DataTypes.ENUM('not_created', 'pending', 'in-progress', 'completed'),
-    defaultValue: 'pending'
+    type: DataTypes.STRING, 
+    defaultValue: 'pending',
+    validate: {
+      isIn: [['pending', 'in-progress', 'completed']]
+    }
   }
 }, {
   tableName: 'MovieMondays'
@@ -158,23 +193,12 @@ const WatchLater = sequelize.define('WatchLater', {
     allowNull: true
   }
 }, {
-  tableName: 'WatchLaters', // Explicitly set table name
-  timestamps: true
+  tableName: 'WatchLater'  // Changed from 'WatchLaters'
 });
 
 
-// Group Invite relationships
-GroupInvite.belongsTo(User, { as: "invitedBy" });
-GroupInvite.belongsTo(User, { as: "invitedUser" });
-GroupInvite.belongsTo(Group);
 
-// Group relationships
-Group.belongsTo(User, {
-  as: "createdBy",
-  foreignKey: {
-    allowNull: false,
-  },
-});
+
 
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
@@ -202,6 +226,15 @@ MovieSelection.belongsTo(MovieMonday, {
   foreignKey: 'movieMondayId'
 });
 
+MovieMonday.hasOne(MovieMondayEventDetails, {
+  foreignKey: 'movieMondayId',
+  as: 'eventDetails'
+});
+
+MovieMondayEventDetails.belongsTo(MovieMonday, {
+  foreignKey: 'movieMondayId'
+});
+
 // WatchLater relationships
 User.hasMany(WatchLater, {
   foreignKey: 'userId',
@@ -218,6 +251,6 @@ module.exports = {
   WatchLater,
   Group,
   Movie,
-  GroupInvite,
   sequelize,
+  MovieMondayEventDetails,
 };

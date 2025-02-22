@@ -91,8 +91,12 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Generate token with correct user ID
     const token = jwt.sign(
-      { id: user.id, username: user.username },
+      { 
+        id: user.id,          // Make sure this is consistent
+        username: user.username 
+      },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
@@ -100,13 +104,20 @@ router.post('/login', async (req, res) => {
     // Set token as HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production', // Use secure in production
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
       maxAge: 24 * 60 * 60 * 1000 // 24 hours
     });
 
+    // Log token info for debugging
+    console.log('Generated token for user:', {
+      userId: user.id,
+      username: user.username
+    });
+
     res.json({ token });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ message: error.message });
   }
 });

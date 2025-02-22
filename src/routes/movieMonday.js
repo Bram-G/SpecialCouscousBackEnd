@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const { MovieMonday, MovieSelection, User, WatchLater,sequelize } = require('../models'); 
+const { 
+  MovieMonday, 
+  MovieSelection, 
+  User, 
+  WatchLater,
+  MovieMondayEventDetails,  // Add this import
+  sequelize
+} = require('../models');
 const authMiddleware = require('../middleware/auth');
 const { Op } = require('sequelize');
 
@@ -309,7 +316,22 @@ router.get('/:date', authMiddleware, async (req, res) => {
           ),
           { GroupId: userGroupIds }
         ]
-      }
+      },
+      include: [
+        {
+          model: MovieSelection,
+          as: 'movieSelections'
+        },
+        {
+          model: User,
+          as: 'picker',
+          attributes: ['id', 'username']
+        },
+        {
+          model: MovieMondayEventDetails,
+          as: 'eventDetails'
+        }
+      ]
     });
 
     // If no movie monday exists for this date
@@ -563,6 +585,57 @@ router.post('/:id/set-winner', authMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Error updating winner:', error);
     res.status(500).json({ message: 'Failed to update winner' });
+  }
+});
+
+router.post('/:id/event-details', authMiddleware, async (req, res) => {
+  try {
+    const { meals, cocktails, notes } = req.body;
+    const movieMondayId = req.params.id;
+
+    // Verify user has access to this MovieMonday
+    const userGroupIds = req.userGroups.map(group => group.id);
+    const movieMonday = await MovieMonday.findOne({
+      where: {
+        id: movieMondayId,
+        GroupId: userGroupIds
+      }
+    });
+
+    if (!movieMonday) {
+      return res.status(404).json({ 
+        message: 'Movie Monday not found or you do not have access to it' 
+      });
+    }
+
+    // Process cocktails input
+    let processedCocktails = cocktails;
+    if (typeof cocktails === 'string') {
+      processedCocktails = cocktails.split(',').map(c => c.trim()).filter(Boolean);
+    }
+
+    // Update or create event details
+    const [eventDetails, created] = await MovieMondayEventDetails.findOrCreate({
+      where: { movieMondayId },
+      defaults: {
+        meals,
+        cocktails: processedCocktails,
+        notes
+      }
+    });
+
+    if (!created) {
+      await eventDetails.update({
+        meals,
+        cocktails: processedCocktails,
+        notes
+      });
+    }
+
+    res.json(eventDetails);
+  } catch (error) {
+    console.error('Error updating event details:', error);
+    res.status(500).json({ message: 'Failed to update event details' });
   }
 });
 

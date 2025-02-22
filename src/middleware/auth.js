@@ -1,15 +1,17 @@
 const jwt = require('jsonwebtoken');
-const { User, Group } = require('../models'); // Add this
+const { User, Group } = require('../models');
 
-const authMiddleware = async (req, res, next) => { // Make it async
+const authMiddleware = async (req, res, next) => {
   try {
     let token;
     
+    // Get token from Authorization header
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
       token = authHeader.split(' ')[1];
     }
     
+    // Or from cookies
     if (!token && req.cookies) {
       token = req.cookies.token;
     }
@@ -22,12 +24,16 @@ const authMiddleware = async (req, res, next) => { // Make it async
     }
 
     try {
+      // Verify the token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      // console.log('Decoded token:', decoded);
-      if (decoded.exp && Date.now() >= decoded.exp * 1000) {
+      
+      // Log the decoded token to check its structure
+      console.log('Decoded token:', decoded);
+
+      if (!decoded || !decoded.id) {
         return res.status(401).json({
-          message: 'Token expired',
-          details: 'Please log in again'
+          message: 'Authentication failed',
+          details: 'Invalid token structure'
         });
       }
 
@@ -48,11 +54,12 @@ const authMiddleware = async (req, res, next) => { // Make it async
         });
       }
 
-      // Add complete user object to request
+      // Add user info to request
       req.user = user;
       req.userId = user.id;
       req.userGroups = user.Groups || [];
       
+      // Helper methods
       req.isInGroup = (groupId) => {
         return user.Groups.some(group => group.id === groupId);
       };
@@ -63,13 +70,10 @@ const authMiddleware = async (req, res, next) => { // Make it async
         );
       };
 
-      res.header('Access-Control-Allow-Credentials', 'true');
-      res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
-      res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,UPDATE,OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'X-Requested-With, X-HTTP-Method-Override, Content-Type, Accept, Authorization');
-      
       next();
     } catch (jwtError) {
+      console.error('JWT Verification Error:', jwtError);
+      
       if (jwtError.name === 'JsonWebTokenError') {
         return res.status(401).json({
           message: 'Invalid token',
