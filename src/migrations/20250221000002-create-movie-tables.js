@@ -20,7 +20,7 @@ module.exports = {
         autoIncrement: true
       },
       date: {
-        type: Sequelize.DATE,
+        type: Sequelize.DATEONLY, 
         allowNull: false
       },
       pickerUserId: {
@@ -55,6 +55,8 @@ module.exports = {
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
       }
     });
+    
+   
 
     // Create MovieSelections table
     await queryInterface.createTable('MovieSelections', {
@@ -142,7 +144,7 @@ module.exports = {
 
     // Add constraints
     await queryInterface.addConstraint('MovieMondays', {
-      fields: ['GroupId', 'date'],
+      fields: ['date', 'GroupId'],
       type: 'unique',
       name: 'unique_date_per_group'
     });

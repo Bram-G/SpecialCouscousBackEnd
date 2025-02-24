@@ -11,12 +11,13 @@ const authMiddleware = async (req, res, next) => {
       token = authHeader.split(' ')[1];
     }
     
-    // Or from cookies
+    // Fallback to cookies if no Authorization header
     if (!token && req.cookies) {
       token = req.cookies.token;
     }
 
     if (!token) {
+      console.log('No token provided');
       return res.status(401).json({ 
         message: 'Authentication required',
         details: 'No token provided'
@@ -24,16 +25,14 @@ const authMiddleware = async (req, res, next) => {
     }
 
     try {
-      // Verify the token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
-      // Log the decoded token to check its structure
       console.log('Decoded token:', decoded);
 
-      if (!decoded || !decoded.id) {
+      if (!decoded.id) {
+        console.log('Invalid token structure - no id field:', decoded);
         return res.status(401).json({
-          message: 'Authentication failed',
-          details: 'Invalid token structure'
+          message: 'Invalid token structure',
+          details: 'Token missing required fields'
         });
       }
 
@@ -48,18 +47,18 @@ const authMiddleware = async (req, res, next) => {
       });
 
       if (!user) {
+        console.log('User not found for id:', decoded.id);
         return res.status(401).json({
           message: 'Authentication failed',
           details: 'User not found'
         });
       }
 
-      // Add user info to request
+      // Add user data to request
       req.user = user;
       req.userId = user.id;
       req.userGroups = user.Groups || [];
       
-      // Helper methods
       req.isInGroup = (groupId) => {
         return user.Groups.some(group => group.id === groupId);
       };
@@ -70,10 +69,15 @@ const authMiddleware = async (req, res, next) => {
         );
       };
 
+      // Set CORS headers
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+      res.header('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,UPDATE,OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'X-Requested-With, X-HTTP-Method-Override, Content-Type, Accept, Authorization');
+      
       next();
     } catch (jwtError) {
-      console.error('JWT Verification Error:', jwtError);
-      
+      console.error('JWT verification error:', jwtError);
       if (jwtError.name === 'JsonWebTokenError') {
         return res.status(401).json({
           message: 'Invalid token',

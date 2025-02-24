@@ -117,23 +117,28 @@ const MovieMonday = sequelize.define('MovieMonday', {
     autoIncrement: true
   },
   date: {
-    type: DataTypes.DATE,
+    type: DataTypes.DATEONLY,  // Changed to match migration
     allowNull: false
   },
   pickerUserId: {
     type: DataTypes.INTEGER,
-    allowNull: false
+    allowNull: false,
+    references: {
+      model: 'Users',
+      key: 'id'
+    }
   },
   GroupId: {
     type: DataTypes.INTEGER,
-    allowNull: false
+    allowNull: false,
+    references: {
+      model: 'Groups',
+      key: 'id'
+    }
   },
   status: {
-    type: DataTypes.STRING, 
-    defaultValue: 'pending',
-    validate: {
-      isIn: [['pending', 'in-progress', 'completed']]
-    }
+    type: DataTypes.ENUM('pending', 'in-progress', 'completed'),
+    defaultValue: 'pending'
   }
 }, {
   tableName: 'MovieMondays'

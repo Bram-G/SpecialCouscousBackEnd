@@ -4,13 +4,12 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { Op } = require('sequelize');
+const auth = require('../middleware/auth');
 
-// routes/auth.js
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
     
-    // Add validation
     if (!username || !email || !password) {
       return res.status(400).json({ 
         message: 'Missing required fields',
@@ -22,7 +21,6 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Check if user already exists - fixed query
     const existingUser = await User.findOne({
       where: {
         [Op.or]: [
@@ -47,25 +45,31 @@ router.post('/register', async (req, res) => {
       password: hashedPassword
     });
 
-    // Create token after registration
+    // Create token with consistent id field
     const token = jwt.sign(
-      { userId: user.id, username: user.username },
+      { 
+        id: user.id,  // Changed from userId to id
+        username: user.username 
+      },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    // Set cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000
     });
 
-    // Return both success message and token
     res.status(201).json({ 
       message: 'User created successfully',
-      token 
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
     });
 
   } catch (error) {
@@ -91,34 +95,58 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    // Generate token with correct user ID
+    // Generate token with consistent id field
     const token = jwt.sign(
       { 
-        id: user.id,          // Make sure this is consistent
+        id: user.id,
         username: user.username 
       },
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
 
-    // Set token as HTTP-only cookie
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000 // 24 hours
+      maxAge: 24 * 60 * 60 * 1000
     });
 
-    // Log token info for debugging
-    console.log('Generated token for user:', {
-      userId: user.id,
+    console.log('Generated token payload:', {
+      id: user.id,
       username: user.username
     });
 
-    res.json({ token });
+    res.json({ 
+      token,
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email
+      }
+    });
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: error.message });
+  }
+});
+
+router.get('/verify', auth, async (req, res) => {
+  try {
+    // If the request made it past the authMiddleware, the token is valid
+    res.json({ 
+      valid: true,
+      user: {
+        id: req.user.id,
+        username: req.user.username
+      }
+    });
+  } catch (error) {
+    console.error('Token verification error:', error);
+    res.status(401).json({ 
+      valid: false,
+      message: 'Invalid token'
+    });
   }
 });
 
