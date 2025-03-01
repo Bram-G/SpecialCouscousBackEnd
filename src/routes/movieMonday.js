@@ -154,6 +154,92 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
   }
 });
 
+router.get('/all', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const groupIds = req.userGroups.map(g => g.id);
+    
+    // Get all movie mondays for the user's groups
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: groupIds
+      },
+      include: [
+        {
+          model: MovieSelection,
+          as: 'movieSelections',
+          attributes: ['id', 'tmdbMovieId', 'title', 'posterPath', 'isWinner']
+        },
+        {
+          model: User,
+          as: 'picker',
+          attributes: ['id', 'username']
+        },
+        {
+          model: MovieMondayEventDetails,
+          as: 'eventDetails'
+        }
+      ]
+    });
+
+    // For each movie, fetch additional data from TMDB API
+    // This could be optimized to bulk fetch or cache results
+    const enhancedMovieMondays = await Promise.all(
+      movieMondays.map(async (mm) => {
+        const enhancedSelections = await Promise.all(
+          mm.movieSelections.map(async (movie) => {
+            try {
+              // Fetch movie details from TMDB API
+              const tmdbResponse = await fetch(
+                `https://api.themoviedb.org/3/movie/${movie.tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`
+              );
+              const tmdbData = await tmdbResponse.json();
+              
+              // Extract director
+              const director = tmdbData.credits?.crew?.find(
+                person => person.job === 'Director'
+              )?.name;
+              const actors = tmdbData.credits?.cast
+              ?.slice(0, 5)
+              .map(actor => actor.name) || [];
+            
+            // Extract genres
+            const genres = tmdbData.genres?.map(g => g.name) || [];
+            
+            // Add release year
+            const releaseYear = tmdbData.release_date 
+              ? parseInt(tmdbData.release_date.split('-')[0]) 
+              : null;
+            
+            return {
+              ...movie.get({ plain: true }),
+              director,
+              actors,
+              genres,
+              releaseYear
+            };
+          } catch (error) {
+            console.error(`Error fetching TMDB data for movie ${movie.tmdbMovieId}:`, error);
+            return movie.get({ plain: true });
+          }
+        })
+      );
+      
+      const mmData = mm.get({ plain: true });
+      return {
+        ...mmData,
+        movieSelections: enhancedSelections
+      };
+    })
+  );
+  
+  res.json(enhancedMovieMondays);
+} catch (error) {
+  console.error('Error fetching all movie mondays:', error);
+  res.status(500).json({ error: 'Failed to fetch movie data' });
+}
+});
+
 router.put("/update-picker", authMiddleware, async (req, res) => {
   try {
     const { movieMondayId, pickerUserId } = req.body;
