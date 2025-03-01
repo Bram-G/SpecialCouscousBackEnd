@@ -169,11 +169,95 @@ const MovieSelection = sequelize.define('MovieSelection', {
   isWinner: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
+  },
+  genres: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const value = this.getDataValue('genres');
+      return value ? JSON.parse(value) : [];
+    },
+    set(val) {
+      this.setDataValue('genres', JSON.stringify(val));
+    }
+  },
+  releaseYear: {
+    type: DataTypes.INTEGER,
+    allowNull: true
   }
 }, {
   tableName: 'MovieSelections', // Explicitly set table name
   timestamps: true
 });
+
+const MovieCast = sequelize.define('MovieCast', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  movieSelectionId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  actorId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  character: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  profilePath: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  order: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  }
+}, {
+  tableName: 'MovieCast'
+});
+
+const MovieCrew = sequelize.define('MovieCrew', {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  movieSelectionId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  personId: {
+    type: DataTypes.INTEGER,
+    allowNull: false
+  },
+  name: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  job: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  department: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  profilePath: {
+    type: DataTypes.STRING,
+    allowNull: true
+  }
+}, {
+  tableName: 'MovieCrew'
+});
+
 
 const WatchLater = sequelize.define('WatchLater', {
   id: {
@@ -249,9 +333,28 @@ WatchLater.belongsTo(User, {
   foreignKey: 'userId'
 });
 
+//Cast relationships
+MovieSelection.hasMany(MovieCast, {
+  foreignKey: 'movieSelectionId',
+  as: 'cast'
+});
+MovieCast.belongsTo(MovieSelection, {
+  foreignKey: 'movieSelectionId'
+});
+
+MovieSelection.hasMany(MovieCrew, {
+  foreignKey: 'movieSelectionId',
+  as: 'crew'
+});
+MovieCrew.belongsTo(MovieSelection, {
+  foreignKey: 'movieSelectionId'
+});
+
 module.exports = {
   MovieMonday,
   MovieSelection,
+  MovieCast,
+  MovieCrew,
   User,
   WatchLater,
   Group,

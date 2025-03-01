@@ -126,14 +126,74 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
         .json({ message: "Movie already added to this Movie Monday" });
     }
 
-    // Add movie selection
+    // Fetch detailed movie info from TMDB API
+    const tmdbResponse = await fetch(
+      `https://api.themoviedb.org/3/movie/${tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`
+    );
+    
+    if (!tmdbResponse.ok) {
+      return res.status(502).json({ 
+        message: "Failed to fetch movie details from TMDB",
+        status: tmdbResponse.status
+      });
+    }
+    
+    const tmdbData = await tmdbResponse.json();
+    
+    // Extract genres
+    const genres = tmdbData.genres ? tmdbData.genres.map(g => g.name) : [];
+    
+    // Extract release year
+    const releaseYear = tmdbData.release_date 
+      ? parseInt(tmdbData.release_date.split('-')[0]) 
+      : null;
+
+    // Add movie selection with additional data
     const movieSelection = await MovieSelection.create({
       movieMondayId,
       tmdbMovieId: parseInt(tmdbMovieId),
       title,
       posterPath,
       isWinner: false,
+      genres: genres,
+      releaseYear
     });
+
+    // Store cast information (top 10 actors)
+    if (tmdbData.credits && tmdbData.credits.cast) {
+      const topCast = tmdbData.credits.cast.slice(0, 10);
+      
+      for (const actor of topCast) {
+        await MovieCast.create({
+          movieSelectionId: movieSelection.id,
+          actorId: actor.id,
+          name: actor.name,
+          character: actor.character,
+          profilePath: actor.profile_path,
+          order: actor.order
+        });
+      }
+    }
+
+    // Store crew information (directors and key positions)
+    if (tmdbData.credits && tmdbData.credits.crew) {
+      // Get directors and important crew
+      const importantJobs = ['Director', 'Producer', 'Screenplay', 'Writer'];
+      const keyCrew = tmdbData.credits.crew.filter(
+        person => importantJobs.includes(person.job)
+      );
+      
+      for (const person of keyCrew) {
+        await MovieCrew.create({
+          movieSelectionId: movieSelection.id,
+          personId: person.id,
+          name: person.name,
+          job: person.job,
+          department: person.department,
+          profilePath: person.profile_path
+        });
+      }
+    }
 
     // Update movie monday status if needed
     if (movieMonday.movieSelections.length + 1 === 3) {
@@ -168,7 +228,19 @@ router.get('/all', authMiddleware, async (req, res) => {
         {
           model: MovieSelection,
           as: 'movieSelections',
-          attributes: ['id', 'tmdbMovieId', 'title', 'posterPath', 'isWinner']
+          attributes: ['id', 'tmdbMovieId', 'title', 'posterPath', 'isWinner', 'genres', 'releaseYear'],
+          include: [
+            {
+              model: MovieCast,
+              as: 'cast',
+              attributes: ['actorId', 'name', 'character', 'profilePath', 'order']
+            },
+            {
+              model: MovieCrew,
+              as: 'crew',
+              attributes: ['personId', 'name', 'job', 'department', 'profilePath']
+            }
+          ]
         },
         {
           model: User,
@@ -182,62 +254,41 @@ router.get('/all', authMiddleware, async (req, res) => {
       ]
     });
 
-    // For each movie, fetch additional data from TMDB API
-    // This could be optimized to bulk fetch or cache results
-    const enhancedMovieMondays = await Promise.all(
-      movieMondays.map(async (mm) => {
-        const enhancedSelections = await Promise.all(
-          mm.movieSelections.map(async (movie) => {
-            try {
-              // Fetch movie details from TMDB API
-              const tmdbResponse = await fetch(
-                `https://api.themoviedb.org/3/movie/${movie.tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`
-              );
-              const tmdbData = await tmdbResponse.json();
-              
-              // Extract director
-              const director = tmdbData.credits?.crew?.find(
-                person => person.job === 'Director'
-              )?.name;
-              const actors = tmdbData.credits?.cast
-              ?.slice(0, 5)
-              .map(actor => actor.name) || [];
-            
-            // Extract genres
-            const genres = tmdbData.genres?.map(g => g.name) || [];
-            
-            // Add release year
-            const releaseYear = tmdbData.release_date 
-              ? parseInt(tmdbData.release_date.split('-')[0]) 
-              : null;
-            
-            return {
-              ...movie.get({ plain: true }),
-              director,
-              actors,
-              genres,
-              releaseYear
-            };
-          } catch (error) {
-            console.error(`Error fetching TMDB data for movie ${movie.tmdbMovieId}:`, error);
-            return movie.get({ plain: true });
-          }
-        })
-      );
+    // Transform data for easier consumption by analytics
+    const enhancedMovieMondays = movieMondays.map(mm => {
+      const plainMM = mm.get({ plain: true });
       
-      const mmData = mm.get({ plain: true });
-      return {
-        ...mmData,
-        movieSelections: enhancedSelections
-      };
-    })
-  );
+      // Parse genres if needed (depending on your getter/setter implementation)
+      plainMM.movieSelections = plainMM.movieSelections.map(movie => {
+        // Extract directors from crew
+        const directors = movie.crew
+          .filter(person => person.job === 'Director')
+          .map(director => ({ 
+            id: director.personId,
+            name: director.name
+          }));
+          
+        // Format the movie with additional derived fields
+        return {
+          ...movie,
+          director: directors.length > 0 ? directors[0].name : 'Unknown',
+          directors: directors,
+          actors: movie.cast.map(actor => ({
+            id: actor.actorId,
+            name: actor.name,
+            character: actor.character
+          }))
+        };
+      });
+      
+      return plainMM;
+    });
   
-  res.json(enhancedMovieMondays);
-} catch (error) {
-  console.error('Error fetching all movie mondays:', error);
-  res.status(500).json({ error: 'Failed to fetch movie data' });
-}
+    res.json(enhancedMovieMondays);
+  } catch (error) {
+    console.error('Error fetching all movie mondays:', error);
+    res.status(500).json({ error: 'Failed to fetch movie data' });
+  }
 });
 
 router.put("/update-picker", authMiddleware, async (req, res) => {
@@ -751,6 +802,229 @@ router.delete('/:movieMondayId/movies/:movieSelectionId', authMiddleware, async 
       message: 'Failed to remove movie selection',
       error: error.message 
     });
+  }
+});
+
+router.get('/analytics', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const groupIds = req.userGroups.map(g => g.id);
+    
+    // Get all completed movie mondays for analytics
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: groupIds
+      },
+      include: [
+        {
+          model: MovieSelection,
+          as: 'movieSelections',
+          attributes: ['id', 'tmdbMovieId', 'title', 'posterPath', 'isWinner', 'genres', 'releaseYear'],
+          include: [
+            {
+              model: MovieCast,
+              as: 'cast',
+              attributes: ['actorId', 'name']
+            },
+            {
+              model: MovieCrew,
+              as: 'crew',
+              attributes: ['personId', 'name', 'job']
+            }
+          ]
+        },
+        {
+          model: User,
+          as: 'picker',
+          attributes: ['id', 'username']
+        }
+      ]
+    });
+
+    // Calculate various analytics data
+    const analytics = {
+      totalMoviesWatched: 0,
+      genres: {},
+      actors: {},
+      directors: {},
+      pickers: {},
+      moviesByMonth: {},
+      winRates: {}
+    };
+
+    // Process all movie mondays
+    movieMondays.forEach(mm => {
+      const plainMM = mm.get({ plain: true });
+      const date = new Date(plainMM.date);
+      const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      
+      // Initialize month tracking
+      if (!analytics.moviesByMonth[monthKey]) {
+        analytics.moviesByMonth[monthKey] = {
+          count: 0,
+          winners: 0
+        };
+      }
+      
+      // Process each movie
+      plainMM.movieSelections.forEach(movie => {
+        // Count movies
+        analytics.totalMoviesWatched++;
+        
+        // Track winner status
+        if (movie.isWinner) {
+          analytics.moviesByMonth[monthKey].winners++;
+        }
+        
+        // Process genres
+        if (movie.genres && Array.isArray(movie.genres)) {
+          movie.genres.forEach(genre => {
+            if (!analytics.genres[genre]) {
+              analytics.genres[genre] = { count: 0, wins: 0 };
+            }
+            analytics.genres[genre].count++;
+            if (movie.isWinner) {
+              analytics.genres[genre].wins++;
+            }
+          });
+        }
+        
+        // Process cast/actors
+        movie.cast.forEach(actor => {
+          if (!analytics.actors[actor.name]) {
+            analytics.actors[actor.name] = { 
+              id: actor.actorId,
+              count: 0,
+              wins: 0 
+            };
+          }
+          analytics.actors[actor.name].count++;
+          if (movie.isWinner) {
+            analytics.actors[actor.name].wins++;
+          }
+        });
+        
+        // Process directors
+        movie.crew.forEach(person => {
+          if (person.job === 'Director') {
+            if (!analytics.directors[person.name]) {
+              analytics.directors[person.name] = { 
+                id: person.personId,
+                count: 0,
+                wins: 0 
+              };
+            }
+            analytics.directors[person.name].count++;
+            if (movie.isWinner) {
+              analytics.directors[person.name].wins++;
+            }
+          }
+        });
+        
+        // Track win rates
+        if (!analytics.winRates[movie.title]) {
+          analytics.winRates[movie.title] = {
+            id: movie.tmdbMovieId,
+            selections: 0,
+            wins: 0
+          };
+        }
+        analytics.winRates[movie.title].selections++;
+        if (movie.isWinner) {
+          analytics.winRates[movie.title].wins++;
+        }
+      });
+      
+      // Count movies in this month
+      analytics.moviesByMonth[monthKey].count += plainMM.movieSelections.length;
+      
+      // Track picker stats
+      if (plainMM.picker) {
+        const pickerName = plainMM.picker.username;
+        if (!analytics.pickers[pickerName]) {
+          analytics.pickers[pickerName] = {
+            id: plainMM.picker.id,
+            picks: 0,
+            wins: 0
+          };
+        }
+        
+        // Count this picker's picks
+        const pickerSelections = plainMM.movieSelections.filter(
+          m => m.isWinner !== null // Only count decided selections
+        );
+        
+        if (pickerSelections.length > 0) {
+          analytics.pickers[pickerName].picks += pickerSelections.length;
+          
+          // Count this picker's wins
+          const pickerWins = pickerSelections.filter(m => m.isWinner);
+          analytics.pickers[pickerName].wins += pickerWins.length;
+        }
+      }
+    });
+    
+    // Format the data for the frontend
+    const formattedAnalytics = {
+      totalMovies: analytics.totalMoviesWatched,
+      
+      // Format genres for charts
+      genres: Object.entries(analytics.genres).map(([name, data]) => ({
+        name,
+        count: data.count,
+        wins: data.wins,
+        winRate: data.count > 0 ? (data.wins / data.count * 100) : 0
+      })).sort((a, b) => b.count - a.count),
+      
+      // Format actors for charts
+      actors: Object.entries(analytics.actors).map(([name, data]) => ({
+        name,
+        id: data.id,
+        count: data.count,
+        wins: data.wins,
+        winRate: data.count > 0 ? (data.wins / data.count * 100) : 0
+      })).sort((a, b) => b.count - a.count),
+      
+      // Format directors for charts
+      directors: Object.entries(analytics.directors).map(([name, data]) => ({
+        name,
+        id: data.id,
+        count: data.count,
+        wins: data.wins,
+        winRate: data.count > 0 ? (data.wins / data.count * 100) : 0
+      })).sort((a, b) => b.count - a.count),
+      
+      // Format monthly data for time series
+      monthlyMovies: Object.entries(analytics.moviesByMonth).map(([month, data]) => ({
+        name: month,
+        value: data.count,
+        winners: data.winners
+      })).sort((a, b) => a.name.localeCompare(b.name)),
+      
+      // Format win rates
+      winRates: Object.entries(analytics.winRates).map(([title, data]) => ({
+        name: title,
+        id: data.id,
+        selections: data.selections,
+        wins: data.wins,
+        winRate: data.selections > 0 ? (data.wins / data.selections * 100) : 0,
+        lossRate: data.selections > 0 ? (100 - (data.wins / data.selections * 100)) : 0
+      })),
+      
+      // Format picker success rates
+      pickers: Object.entries(analytics.pickers).map(([name, data]) => ({
+        name,
+        id: data.id,
+        selections: data.picks,
+        wins: data.wins,
+        successRate: data.picks > 0 ? (data.wins / data.picks * 100) : 0
+      })).sort((a, b) => b.successRate - a.successRate)
+    };
+    
+    res.json(formattedAnalytics);
+  } catch (error) {
+    console.error('Error generating analytics:', error);
+    res.status(500).json({ error: 'Failed to generate analytics' });
   }
 });
 
