@@ -97,23 +97,9 @@ module.exports = {
         defaultValue: Sequelize.literal('CURRENT_TIMESTAMP')
       }
     });
-
-    // Add genre information to MovieSelection
-    await queryInterface.addColumn('MovieSelections', 'genres', {
-      type: Sequelize.TEXT,
-      allowNull: true
-    });
-
-    // Add release year to MovieSelection
-    await queryInterface.addColumn('MovieSelections', 'releaseYear', {
-      type: Sequelize.INTEGER,
-      allowNull: true
-    });
   },
 
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.removeColumn('MovieSelections', 'releaseYear');
-    await queryInterface.removeColumn('MovieSelections', 'genres');
     await queryInterface.dropTable('MovieCrew');
     await queryInterface.dropTable('MovieCast');
   }

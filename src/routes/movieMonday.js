@@ -5,11 +5,15 @@ const {
   MovieSelection,
   User,
   WatchLater,
-  MovieMondayEventDetails, // Add this import
+  MovieMondayEventDetails,
+  MovieCast,
+  MovieCrew, 
   sequelize,
 } = require("../models");
 const authMiddleware = require("../middleware/auth");
 const { Op } = require("sequelize");
+console.log('TMDB API Key available:', !!process.env.TMDB_API_KEY);
+// Don't log the actual key for security reasons
 
 router.post("/create", authMiddleware, async (req, res) => {
   try {
@@ -85,8 +89,16 @@ router.post("/create", authMiddleware, async (req, res) => {
 
 router.post("/add-movie", authMiddleware, async (req, res) => {
   try {
+    console.log("Add movie request received:", {
+      body: req.body,
+      user: req.user.id,
+      groupIds: req.userGroups.map(g => g.id)
+    });
+    
     const { movieMondayId, tmdbMovieId, title, posterPath } = req.body;
 
+    // Log each step
+    console.log("Step 1: Validating input");
     if (!movieMondayId || !tmdbMovieId) {
       return res.status(400).json({
         message: "Missing required fields",
@@ -94,6 +106,7 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
       });
     }
 
+    console.log("Step 2: Finding MovieMonday");
     // Find the MovieMonday
     const movieMonday = await MovieMonday.findOne({
       where: { id: movieMondayId },
@@ -105,102 +118,127 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
       ],
     });
 
+    console.log("MovieMonday found:", !!movieMonday);
     if (!movieMonday) {
       return res.status(404).json({ message: "Movie Monday not found" });
     }
 
+    console.log("Step 3: Checking movie count");
     // Check if already has 3 movies
     if (movieMonday.movieSelections.length >= 3) {
-      return res
-        .status(400)
-        .json({ message: "Movie Monday already has maximum number of movies" });
+      return res.status(400).json({ 
+        message: "Movie Monday already has maximum number of movies" 
+      });
     }
 
+    console.log("Step 4: Checking for duplicate movie");
     // Check if movie is already added
     const existingMovie = movieMonday.movieSelections.find(
       (ms) => ms.tmdbMovieId === parseInt(tmdbMovieId)
     );
     if (existingMovie) {
-      return res
-        .status(400)
-        .json({ message: "Movie already added to this Movie Monday" });
-    }
-
-    // Fetch detailed movie info from TMDB API
-    const tmdbResponse = await fetch(
-      `https://api.themoviedb.org/3/movie/${tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`
-    );
-    
-    if (!tmdbResponse.ok) {
-      return res.status(502).json({ 
-        message: "Failed to fetch movie details from TMDB",
-        status: tmdbResponse.status
+      return res.status(400).json({ 
+        message: "Movie already added to this Movie Monday" 
       });
     }
     
-    const tmdbData = await tmdbResponse.json();
-    
-    // Extract genres
-    const genres = tmdbData.genres ? tmdbData.genres.map(g => g.name) : [];
-    
-    // Extract release year
-    const releaseYear = tmdbData.release_date 
-      ? parseInt(tmdbData.release_date.split('-')[0]) 
-      : null;
-
-    // Add movie selection with additional data
+    console.log("Step 5: Creating movie selection");
+    // Add movie with basic info first
     const movieSelection = await MovieSelection.create({
       movieMondayId,
       tmdbMovieId: parseInt(tmdbMovieId),
       title,
       posterPath,
       isWinner: false,
-      genres: genres,
-      releaseYear
+      genres: [],
+      releaseYear: null
     });
-
-    // Store cast information (top 10 actors)
-    if (tmdbData.credits && tmdbData.credits.cast) {
-      const topCast = tmdbData.credits.cast.slice(0, 10);
-      
-      for (const actor of topCast) {
-        await MovieCast.create({
-          movieSelectionId: movieSelection.id,
-          actorId: actor.id,
-          name: actor.name,
-          character: actor.character,
-          profilePath: actor.profile_path,
-          order: actor.order
-        });
-      }
-    }
-
-    // Store crew information (directors and key positions)
-    if (tmdbData.credits && tmdbData.credits.crew) {
-      // Get directors and important crew
-      const importantJobs = ['Director', 'Producer', 'Screenplay', 'Writer'];
-      const keyCrew = tmdbData.credits.crew.filter(
-        person => importantJobs.includes(person.job)
+    
+    console.log("Movie selection created:", movieSelection.id);
+    
+    // Try fetching TMDB data but don't block if it fails
+    try {
+      console.log("Step 6: Fetching TMDB data");
+      const tmdbResponse = await fetch(
+        `https://api.themoviedb.org/3/movie/${tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`
       );
       
-      for (const person of keyCrew) {
-        await MovieCrew.create({
-          movieSelectionId: movieSelection.id,
-          personId: person.id,
-          name: person.name,
-          job: person.job,
-          department: person.department,
-          profilePath: person.profile_path
+      if (tmdbResponse.ok) {
+        console.log("TMDB data fetched successfully");
+        const tmdbData = await tmdbResponse.json();
+        
+        // Extract and update genres
+        const genres = tmdbData.genres ? tmdbData.genres.map(g => g.name) : [];
+        const releaseYear = tmdbData.release_date 
+          ? parseInt(tmdbData.release_date.split('-')[0]) 
+          : null;
+        
+        // Update the movie with additional data
+        await movieSelection.update({
+          genres,
+          releaseYear
+        });
+        
+        console.log("Updated movie with TMDB data");
+        
+        // Process cast if available
+        if (tmdbData.credits && tmdbData.credits.cast) {
+          console.log("Step 7: Processing cast");
+          const topCast = tmdbData.credits.cast.slice(0, 10);
+          
+          for (const actor of topCast) {
+            await MovieCast.create({
+              movieSelectionId: movieSelection.id,
+              actorId: actor.id,
+              name: actor.name,
+              character: actor.character || null,
+              profilePath: actor.profile_path || null,
+              order: actor.order || null
+            });
+          }
+          console.log(`Added ${topCast.length} cast members`);
+        }
+        
+        // Process crew if available
+        if (tmdbData.credits && tmdbData.credits.crew) {
+          console.log("Step 8: Processing crew");
+          const importantJobs = ['Director', 'Producer', 'Screenplay', 'Writer'];
+          const keyCrew = tmdbData.credits.crew.filter(
+            person => importantJobs.includes(person.job)
+          );
+          
+          for (const person of keyCrew) {
+            await MovieCrew.create({
+              movieSelectionId: movieSelection.id,
+              personId: person.id,
+              name: person.name,
+              job: person.job,
+              department: person.department || null,
+              profilePath: person.profile_path || null
+            });
+          }
+          console.log(`Added ${keyCrew.length} crew members`);
+        }
+      } else {
+        console.error("TMDB API error:", {
+          status: tmdbResponse.status,
+          statusText: tmdbResponse.statusText
         });
       }
+    } catch (tmdbError) {
+      console.error("Error fetching or processing TMDB data:", tmdbError);
+      // Continue anyway
     }
-
+    
+    console.log("Step 9: Updating MovieMonday status");
     // Update movie monday status if needed
     if (movieMonday.movieSelections.length + 1 === 3) {
       movieMonday.status = "in-progress";
       await movieMonday.save();
+      console.log("Updated MovieMonday status to in-progress");
     }
-
+    
+    console.log("Successfully added movie to MovieMonday");
     res.status(201).json({
       message: "Movie added successfully",
       movieSelection,
@@ -210,6 +248,7 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
     res.status(500).json({
       message: "Failed to add movie",
       error: error.message,
+      stack: error.stack
     });
   }
 });
@@ -218,6 +257,10 @@ router.get('/all', authMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const groupIds = req.userGroups.map(g => g.id);
+
+    if (groupIds.length === 0) {
+      return res.json([]);
+    }
     
     // Get all movie mondays for the user's groups
     const movieMondays = await MovieMonday.findAll({
