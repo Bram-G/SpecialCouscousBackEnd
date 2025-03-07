@@ -15,6 +15,58 @@ const { Op } = require("sequelize");
 console.log("TMDB API Key available:", !!process.env.TMDB_API_KEY);
 // Don't log the actual key for security reasons
 
+router.get("/cocktails", authMiddleware, async (req, res) => {
+  try {
+    const userGroupIds = req.userGroups.map((group) => group.id);
+    
+    // Find all movie mondays associated with user's groups
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: userGroupIds
+      },
+      include: [{
+        model: MovieMondayEventDetails,
+        as: "eventDetails"
+      }]
+    });
+    
+    // Collect all unique cocktails
+    const allCocktails = new Set();
+    
+    movieMondays.forEach(mm => {
+      if (mm.eventDetails && mm.eventDetails.cocktails) {
+        // Handle both array and string formats
+        let cocktailsList = mm.eventDetails.cocktails;
+        
+        // If it's a string, split it into an array
+        if (typeof cocktailsList === 'string') {
+          cocktailsList = cocktailsList.split(',').map(c => c.trim()).filter(Boolean);
+        }
+        
+        // Add each cocktail to the set
+        if (Array.isArray(cocktailsList)) {
+          cocktailsList.forEach(cocktail => {
+            if (cocktail && cocktail.trim()) {
+              allCocktails.add(cocktail.trim());
+            }
+          });
+        }
+      }
+    });
+    
+    // Sort alphabetically
+    const sortedCocktails = Array.from(allCocktails).sort();
+    
+    // Log the result for debugging
+    console.log(`Found ${sortedCocktails.length} unique cocktails`);
+    
+    res.json(sortedCocktails);
+  } catch (error) {
+    console.error("Error fetching cocktails:", error);
+    res.status(500).json({ message: "Failed to fetch cocktails" });
+  }
+});
+
 router.post("/create", authMiddleware, async (req, res) => {
   try {
     const { date, groupId } = req.body;
@@ -529,9 +581,19 @@ router.get("/:date", authMiddleware, async (req, res) => {
     const dateStr = decodeURIComponent(req.params.date);
     console.log("Searching for MovieMonday:", {
       dateStr,
-      userGroups: req.userGroups,
+      userGroups: req.userGroups.map(g => g.id),
       userId: req.user.id,
     });
+
+    // Validate date format (YYYY-MM-DD)
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      console.warn(`Invalid date format: ${dateStr}`);
+      return res.json({
+        date: dateStr,
+        status: "not_created",
+        movieSelections: [],
+      });
+    }
 
     // Get group IDs from req.userGroups
     const userGroupIds = req.userGroups.map((group) => group.id);
@@ -544,11 +606,11 @@ router.get("/:date", authMiddleware, async (req, res) => {
       });
     }
 
-    // Use direct equality for DATEONLY column
+    // Use sequelize.literal to ensure proper date formatting for the database
     const movieMonday = await MovieMonday.findOne({
       where: {
         GroupId: userGroupIds,
-        date: dateStr, // Direct comparison since column is DATEONLY
+        date: dateStr, // Direct comparison with YYYY-MM-DD string format
       },
       include: [
         {
@@ -587,10 +649,20 @@ router.get("/:date", authMiddleware, async (req, res) => {
       });
     }
 
+    // Process cocktails for consistency (ensure it's an array)
+    if (movieMonday.eventDetails && movieMonday.eventDetails.cocktails) {
+      if (typeof movieMonday.eventDetails.cocktails === 'string') {
+        movieMonday.eventDetails.cocktails = movieMonday.eventDetails.cocktails
+          .split(',')
+          .map(c => c.trim())
+          .filter(Boolean);
+      }
+    }
+
     res.json(movieMonday);
   } catch (error) {
     console.error("Error in GET /:date route:", error);
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: "Failed to fetch Movie Monday data" });
   }
 });
 
@@ -1145,10 +1217,15 @@ router.get("/analytics", authMiddleware, async (req, res) => {
   }
 });
 
+
+
+// Also make sure the event details route properly handles cocktails
 router.post("/:id/event-details", authMiddleware, async (req, res) => {
   try {
     const { meals, cocktails, desserts, notes } = req.body;
     const movieMondayId = req.params.id;
+    
+    console.log("Received cocktails:", cocktails);
 
     // Verify user has access to this MovieMonday
     const userGroupIds = req.userGroups.map((group) => group.id);
@@ -1172,25 +1249,30 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
         .split(",")
         .map((c) => c.trim())
         .filter(Boolean);
+    } else if (!Array.isArray(cocktails)) {
+      // Handle case where cocktails might be null or undefined
+      processedCocktails = [];
     }
+
+    console.log("Processed cocktails:", processedCocktails);
 
     // Update or create event details
     const [eventDetails, created] = await MovieMondayEventDetails.findOrCreate({
       where: { movieMondayId },
       defaults: {
-        meals,
-        desserts,
+        meals: meals || '',
+        desserts: desserts || '',
         cocktails: processedCocktails,
-        notes,
+        notes: notes || '',
       },
     });
 
     if (!created) {
       await eventDetails.update({
-        meals,
-        desserts,
+        meals: meals || eventDetails.meals,
+        desserts: desserts || eventDetails.desserts,
         cocktails: processedCocktails,
-        notes,
+        notes: notes || eventDetails.notes,
       });
     }
 
@@ -1198,44 +1280,6 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Error updating event details:", error);
     res.status(500).json({ message: "Failed to update event details" });
-  }
-});
-
-router.get("/cocktails", authMiddleware, async (req, res) => {
-  try {
-    const userGroupIds = req.userGroups.map((group) => group.id);
-    
-    // Find all movie mondays associated with user's groups
-    const movieMondays = await MovieMonday.findAll({
-      where: {
-        GroupId: userGroupIds
-      },
-      include: [{
-        model: MovieMondayEventDetails,
-        as: "eventDetails"
-      }]
-    });
-    
-    // Collect all unique cocktails
-    const allCocktails = new Set();
-    
-    movieMondays.forEach(mm => {
-      if (mm.eventDetails && mm.eventDetails.cocktails && mm.eventDetails.cocktails.length) {
-        mm.eventDetails.cocktails.forEach(cocktail => {
-          if (cocktail.trim()) {
-            allCocktails.add(cocktail.trim());
-          }
-        });
-      }
-    });
-    
-    // Sort alphabetically
-    const sortedCocktails = Array.from(allCocktails).sort();
-    
-    res.json(sortedCocktails);
-  } catch (error) {
-    console.error("Error fetching cocktails:", error);
-    res.status(500).json({ message: "Failed to fetch cocktails" });
   }
 });
 
