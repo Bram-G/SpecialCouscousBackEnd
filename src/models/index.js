@@ -87,30 +87,78 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
   },
   meals: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const rawValue = this.getDataValue('meals');
+      if (!rawValue) return [];
+      
+      try {
+        // Try to parse as JSON first
+        return JSON.parse(rawValue);
+      } catch (e) {
+        // If not valid JSON, treat as string and return as single-item array
+        return [rawValue];
+      }
+    },
+    set(val) {
+      if (Array.isArray(val)) {
+        this.setDataValue('meals', JSON.stringify(val));
+      } else if (typeof val === 'string') {
+        this.setDataValue('meals', JSON.stringify([val]));
+      } else {
+        this.setDataValue('meals', JSON.stringify([]));
+      }
+    }
   },
+  
+  // Similar for desserts
   desserts: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const rawValue = this.getDataValue('desserts');
+      if (!rawValue) return [];
+      
+      try {
+        return JSON.parse(rawValue);
+      } catch (e) {
+        return [rawValue];
+      }
+    },
+    set(val) {
+      if (Array.isArray(val)) {
+        this.setDataValue('desserts', JSON.stringify(val));
+      } else if (typeof val === 'string') {
+        this.setDataValue('desserts', JSON.stringify([val]));
+      } else {
+        this.setDataValue('desserts', JSON.stringify([]));
+      }
+    }
   },
+  
+  // Ensure cocktails follows same pattern
   cocktails: {
     type: DataTypes.TEXT,
     allowNull: true,
     get() {
       const rawValue = this.getDataValue('cocktails');
-      return rawValue ? rawValue.split(',').map(item => item.trim()) : [];
+      if (!rawValue) return [];
+      
+      try {
+        return JSON.parse(rawValue);
+      } catch (e) {
+        return [rawValue];
+      }
     },
     set(val) {
       if (Array.isArray(val)) {
-        this.setDataValue('cocktails', val.join(','));
+        this.setDataValue('cocktails', JSON.stringify(val));
+      } else if (typeof val === 'string') {
+        this.setDataValue('cocktails', JSON.stringify([val]));
       } else {
-        this.setDataValue('cocktails', val);
+        this.setDataValue('cocktails', JSON.stringify([]));
       }
     }
-  },
-  notes: {
-    type: DataTypes.TEXT,
-    allowNull: true
   }
 });
 

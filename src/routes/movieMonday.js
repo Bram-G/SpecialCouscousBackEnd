@@ -67,6 +67,100 @@ router.get("/cocktails", authMiddleware, async (req, res) => {
   }
 });
 
+// For the meals route
+router.get("/meals", authMiddleware, async (req, res) => {
+  try {
+    const userGroupIds = req.userGroups.map((group) => group.id);
+    
+    // Find all movie mondays associated with user's groups
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: userGroupIds
+      },
+      include: [{
+        model: MovieMondayEventDetails,
+        as: "eventDetails"
+      }]
+    });
+    
+    // Collect all unique meals
+    const allMeals = new Set();
+    
+    movieMondays.forEach(mm => {
+      if (mm.eventDetails && mm.eventDetails.meals) {
+        const meals = mm.eventDetails.meals;
+        // Handle both array and string cases
+        if (Array.isArray(meals)) {
+          meals.forEach(meal => {
+            if (meal && typeof meal === 'string') {
+              allMeals.add(meal.trim());
+            }
+          });
+        } else if (typeof meals === 'string') {
+          allMeals.add(meals.trim());
+        }
+      }
+    });
+    
+    // Sort alphabetically
+    const sortedMeals = Array.from(allMeals).sort();
+    
+    console.log(`Found ${sortedMeals.length} unique meals`);
+    
+    res.json(sortedMeals);
+  } catch (error) {
+    console.error("Error fetching meals:", error);
+    res.status(500).json({ message: "Failed to fetch meals" });
+  }
+});
+
+// Similar update for desserts route
+router.get("/desserts", authMiddleware, async (req, res) => {
+  try {
+    const userGroupIds = req.userGroups.map((group) => group.id);
+    
+    // Find all movie mondays associated with user's groups
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: userGroupIds
+      },
+      include: [{
+        model: MovieMondayEventDetails,
+        as: "eventDetails"
+      }]
+    });
+    
+    // Collect all unique desserts
+    const allDesserts = new Set();
+    
+    movieMondays.forEach(mm => {
+      if (mm.eventDetails && mm.eventDetails.desserts) {
+        const desserts = mm.eventDetails.desserts;
+        // Handle both array and string cases
+        if (Array.isArray(desserts)) {
+          desserts.forEach(dessert => {
+            if (dessert && typeof dessert === 'string') {
+              allDesserts.add(dessert.trim());
+            }
+          });
+        } else if (typeof desserts === 'string') {
+          allDesserts.add(desserts.trim());
+        }
+      }
+    });
+    
+    // Sort alphabetically
+    const sortedDesserts = Array.from(allDesserts).sort();
+    
+    console.log(`Found ${sortedDesserts.length} unique desserts`);
+    
+    res.json(sortedDesserts);
+  } catch (error) {
+    console.error("Error fetching desserts:", error);
+    res.status(500).json({ message: "Failed to fetch desserts" });
+  }
+});
+
 router.post("/create", authMiddleware, async (req, res) => {
   try {
     const { date, groupId } = req.body;
@@ -1217,16 +1311,11 @@ router.get("/analytics", authMiddleware, async (req, res) => {
   }
 });
 
-
-
-// Also make sure the event details route properly handles cocktails
 router.post("/:id/event-details", authMiddleware, async (req, res) => {
   try {
     const { meals, cocktails, desserts, notes } = req.body;
     const movieMondayId = req.params.id;
     
-    console.log("Received cocktails:", cocktails);
-
     // Verify user has access to this MovieMonday
     const userGroupIds = req.userGroups.map((group) => group.id);
     const movieMonday = await MovieMonday.findOne({
@@ -1242,36 +1331,27 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
       });
     }
 
-    // Process cocktails input
-    let processedCocktails = cocktails;
-    if (typeof cocktails === "string") {
-      processedCocktails = cocktails
-        .split(",")
-        .map((c) => c.trim())
-        .filter(Boolean);
-    } else if (!Array.isArray(cocktails)) {
-      // Handle case where cocktails might be null or undefined
-      processedCocktails = [];
-    }
-
-    console.log("Processed cocktails:", processedCocktails);
+    // Ensure arrays are passed for array fields
+    const mealsArray = meals || [];
+    const dessertsArray = desserts || [];
+    const cocktailsArray = cocktails || [];
 
     // Update or create event details
     const [eventDetails, created] = await MovieMondayEventDetails.findOrCreate({
       where: { movieMondayId },
       defaults: {
-        meals: meals || '',
-        desserts: desserts || '',
-        cocktails: processedCocktails,
+        meals: mealsArray,
+        desserts: dessertsArray,
+        cocktails: cocktailsArray,
         notes: notes || '',
       },
     });
 
     if (!created) {
       await eventDetails.update({
-        meals: meals || eventDetails.meals,
-        desserts: desserts || eventDetails.desserts,
-        cocktails: processedCocktails,
+        meals: mealsArray,
+        desserts: dessertsArray,
+        cocktails: cocktailsArray,
         notes: notes || eventDetails.notes,
       });
     }
