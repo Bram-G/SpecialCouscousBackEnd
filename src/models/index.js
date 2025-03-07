@@ -43,14 +43,14 @@ const Group = sequelize.define("Group", {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: 'Users',
-      key: 'id'
-    }
+      model: "Users",
+      key: "id",
+    },
   },
   createdAt: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
-  }
+  },
 });
 
 const Movie = sequelize.define("Movie", {
@@ -89,6 +89,10 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
     type: DataTypes.TEXT,
     allowNull: true
   },
+  desserts: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   cocktails: {
     type: DataTypes.TEXT,
     allowNull: true,
@@ -110,184 +114,199 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
   }
 });
 
-const MovieMonday = sequelize.define('MovieMonday', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  date: {
-    type: DataTypes.DATEONLY,  // Changed to match migration
-    allowNull: false
-  },
-  pickerUserId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Users',
-      key: 'id'
-    }
-  },
-  GroupId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: 'Groups',
-      key: 'id'
-    }
-  },
-  status: {
-    type: DataTypes.ENUM('pending', 'in-progress', 'completed'),
-    defaultValue: 'pending'
-  }
-}, {
-  tableName: 'MovieMondays'
-});
-
-const MovieSelection = sequelize.define('MovieSelection', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
-  },
-  movieMondayId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  tmdbMovieId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  title: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  posterPath: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  isWinner: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false
-  },
-  genres: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const value = this.getDataValue('genres');
-      return value ? JSON.parse(value) : [];
+const MovieMonday = sequelize.define(
+  "MovieMonday",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
     },
-    set(val) {
-      this.setDataValue('genres', JSON.stringify(val));
-    }
+    date: {
+      type: DataTypes.DATEONLY, // Changed to match migration
+      allowNull: false,
+    },
+    pickerUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
+    },
+    GroupId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Groups",
+        key: "id",
+      },
+    },
+    status: {
+      type: DataTypes.ENUM("pending", "in-progress", "completed"),
+      defaultValue: "pending",
+    },
   },
-  releaseYear: {
-    type: DataTypes.INTEGER,
-    allowNull: true
+  {
+    tableName: "MovieMondays",
   }
-}, {
-  tableName: 'MovieSelections', // Explicitly set table name
-  timestamps: true
-});
+);
 
-const MovieCast = sequelize.define('MovieCast', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+const MovieSelection = sequelize.define(
+  "MovieSelection",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    movieMondayId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    tmdbMovieId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    posterPath: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    isWinner: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+    },
+    genres: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const value = this.getDataValue("genres");
+        return value ? JSON.parse(value) : [];
+      },
+      set(val) {
+        this.setDataValue("genres", JSON.stringify(val));
+      },
+    },
+    releaseYear: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   },
-  movieSelectionId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  actorId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  character: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  profilePath: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  order: {
-    type: DataTypes.INTEGER,
-    allowNull: true
+  {
+    tableName: "MovieSelections", // Explicitly set table name
+    timestamps: true,
   }
-}, {
-  tableName: 'MovieCast'
-});
+);
 
-const MovieCrew = sequelize.define('MovieCrew', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+const MovieCast = sequelize.define(
+  "MovieCast",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    movieSelectionId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    actorId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    character: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    profilePath: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    order: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
   },
-  movieSelectionId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  personId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  name: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  job: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  department: {
-    type: DataTypes.STRING,
-    allowNull: true
-  },
-  profilePath: {
-    type: DataTypes.STRING,
-    allowNull: true
+  {
+    tableName: "MovieCast",
   }
-}, {
-  tableName: 'MovieCrew'
-});
+);
 
-
-const WatchLater = sequelize.define('WatchLater', {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true
+const MovieCrew = sequelize.define(
+  "MovieCrew",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    movieSelectionId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    personId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    name: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    job: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    department: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    profilePath: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
   },
-  userId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  tmdbMovieId: {
-    type: DataTypes.INTEGER,
-    allowNull: false
-  },
-  title: {
-    type: DataTypes.STRING,
-    allowNull: false
-  },
-  posterPath: {
-    type: DataTypes.STRING,
-    allowNull: true
+  {
+    tableName: "MovieCrew",
   }
-}, {
-  tableName: 'WatchLater'  // Changed from 'WatchLaters'
-});
+);
 
-
-
-
+const WatchLater = sequelize.define(
+  "WatchLater",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    tmdbMovieId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    title: {
+      type: DataTypes.STRING,
+      allowNull: false,
+    },
+    posterPath: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+  },
+  {
+    tableName: "WatchLater", // Changed from 'WatchLaters'
+  }
+);
 
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
@@ -302,52 +321,52 @@ MovieMonday.belongsTo(Group, {
 });
 
 MovieMonday.belongsTo(User, {
-  foreignKey: 'pickerUserId',
-  as: 'picker'
+  foreignKey: "pickerUserId",
+  as: "picker",
 });
 
 // MovieSelection relationships (remove the belongsToMany and use hasMany/belongsTo)
 MovieMonday.hasMany(MovieSelection, {
-  foreignKey: 'movieMondayId',
-  as: 'movieSelections'
+  foreignKey: "movieMondayId",
+  as: "movieSelections",
 });
 MovieSelection.belongsTo(MovieMonday, {
-  foreignKey: 'movieMondayId'
+  foreignKey: "movieMondayId",
 });
 
 MovieMonday.hasOne(MovieMondayEventDetails, {
-  foreignKey: 'movieMondayId',
-  as: 'eventDetails'
+  foreignKey: "movieMondayId",
+  as: "eventDetails",
 });
 
 MovieMondayEventDetails.belongsTo(MovieMonday, {
-  foreignKey: 'movieMondayId'
+  foreignKey: "movieMondayId",
 });
 
 // WatchLater relationships
 User.hasMany(WatchLater, {
-  foreignKey: 'userId',
-  as: 'watchLaterMovies'
+  foreignKey: "userId",
+  as: "watchLaterMovies",
 });
 WatchLater.belongsTo(User, {
-  foreignKey: 'userId'
+  foreignKey: "userId",
 });
 
 //Cast relationships
 MovieSelection.hasMany(MovieCast, {
-  foreignKey: 'movieSelectionId',
-  as: 'cast'
+  foreignKey: "movieSelectionId",
+  as: "cast",
 });
 MovieCast.belongsTo(MovieSelection, {
-  foreignKey: 'movieSelectionId'
+  foreignKey: "movieSelectionId",
 });
 
 MovieSelection.hasMany(MovieCrew, {
-  foreignKey: 'movieSelectionId',
-  as: 'crew'
+  foreignKey: "movieSelectionId",
+  as: "crew",
 });
 MovieCrew.belongsTo(MovieSelection, {
-  foreignKey: 'movieSelectionId'
+  foreignKey: "movieSelectionId",
 });
 
 module.exports = {

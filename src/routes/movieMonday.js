@@ -1147,7 +1147,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
 
 router.post("/:id/event-details", authMiddleware, async (req, res) => {
   try {
-    const { meals, cocktails, notes } = req.body;
+    const { meals, cocktails, desserts, notes } = req.body;
     const movieMondayId = req.params.id;
 
     // Verify user has access to this MovieMonday
@@ -1179,6 +1179,7 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
       where: { movieMondayId },
       defaults: {
         meals,
+        desserts,
         cocktails: processedCocktails,
         notes,
       },
@@ -1187,6 +1188,7 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
     if (!created) {
       await eventDetails.update({
         meals,
+        desserts,
         cocktails: processedCocktails,
         notes,
       });
@@ -1196,6 +1198,44 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
   } catch (error) {
     console.error("Error updating event details:", error);
     res.status(500).json({ message: "Failed to update event details" });
+  }
+});
+
+router.get("/cocktails", authMiddleware, async (req, res) => {
+  try {
+    const userGroupIds = req.userGroups.map((group) => group.id);
+    
+    // Find all movie mondays associated with user's groups
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: userGroupIds
+      },
+      include: [{
+        model: MovieMondayEventDetails,
+        as: "eventDetails"
+      }]
+    });
+    
+    // Collect all unique cocktails
+    const allCocktails = new Set();
+    
+    movieMondays.forEach(mm => {
+      if (mm.eventDetails && mm.eventDetails.cocktails && mm.eventDetails.cocktails.length) {
+        mm.eventDetails.cocktails.forEach(cocktail => {
+          if (cocktail.trim()) {
+            allCocktails.add(cocktail.trim());
+          }
+        });
+      }
+    });
+    
+    // Sort alphabetically
+    const sortedCocktails = Array.from(allCocktails).sort();
+    
+    res.json(sortedCocktails);
+  } catch (error) {
+    console.error("Error fetching cocktails:", error);
+    res.status(500).json({ message: "Failed to fetch cocktails" });
   }
 });
 
