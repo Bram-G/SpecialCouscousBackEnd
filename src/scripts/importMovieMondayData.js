@@ -7,7 +7,9 @@ const {
   Group, 
   MovieMonday, 
   MovieSelection, 
-  MovieMondayEventDetails, 
+  MovieMondayEventDetails,
+  MovieCast,
+  MovieCrew, 
   sequelize 
 } = require('../models');
 require('dotenv').config();
@@ -83,7 +85,8 @@ async function fetchMovieDetails(tmdbId) {
   }
 
   try {
-    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.TMDB_API_KEY}`;
+    // Fetch movie details with credits (actors and crew)
+    const url = `https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${process.env.TMDB_API_KEY}&append_to_response=credits`;
     const response = await fetch(url);
     
     if (!response.ok) {
@@ -92,12 +95,15 @@ async function fetchMovieDetails(tmdbId) {
     }
     
     const data = await response.json();
+    
     return {
       tmdbMovieId: parseInt(tmdbId),
       title: data.title,
       posterPath: data.poster_path,
       genres: data.genres ? data.genres.map(g => g.name) : [],
-      releaseYear: data.release_date ? parseInt(data.release_date.split('-')[0]) : null
+      releaseYear: data.release_date ? parseInt(data.release_date.split('-')[0]) : null,
+      // Add credits information for later use
+      credits: data.credits || { cast: [], crew: [] }
     };
   } catch (error) {
     console.error(`Error fetching movie details for ID ${tmdbId}:`, error);
@@ -107,13 +113,17 @@ async function fetchMovieDetails(tmdbId) {
       title: `Movie ${tmdbId}`,
       posterPath: null,
       genres: [],
-      releaseYear: null
+      releaseYear: null,
+      credits: { cast: [], crew: [] }
     };
   }
 }
 
 // Process CSV rows
 async function processCSVData(csvData) {
+  // Ensure schema info is available
+  const schemaInfo = await checkDatabaseSchema();
+  
   const parsedData = parse(csvData, {
     columns: true,
     skip_empty_lines: true,
@@ -178,12 +188,20 @@ async function processCSVData(csvData) {
         }
       }
 
-      // Create movie selections
+      // Create movie selections with better handling of blank/problematic values
       const movieIds = [
         { id: row['Winning TMDB ID'], title: row['Winning Movie'], isWinner: true },
         { id: row['Movie 2 TMDB ID'], title: row['Movie #2'], isWinner: false },
         { id: row['Movie 3 TMDB ID'], title: row['Movie #3'], isWinner: false }
-      ].filter(movie => movie.id && !isNaN(movie.id));
+      ].filter(movie => {
+        // Filter out any empty, NaN, or "[ ]" values
+        return movie.id && 
+               !isNaN(Number(movie.id)) && 
+               movie.id !== '[ ]' && 
+               movie.title && 
+               movie.title.trim() !== '' && 
+               movie.title !== '[ ]';
+      });
 
       // Delete existing movie selections if any
       await MovieSelection.destroy({
@@ -213,38 +231,142 @@ async function processCSVData(csvData) {
             movieSelectionData.releaseYear = movieDetails.releaseYear;
           }
           
-          await MovieSelection.create(movieSelectionData);
+          // Create the movie selection
+          const movieSelection = await MovieSelection.create(movieSelectionData);
+          
+          // Now add cast and crew information
+          if (movieDetails.credits) {
+            // Process top cast members (limit to 10)
+            const topCast = movieDetails.credits.cast.slice(0, 10);
+            for (const actor of topCast) {
+              try {
+                await MovieCast.create({
+                  movieSelectionId: movieSelection.id,
+                  actorId: actor.id,
+                  name: actor.name,
+                  character: actor.character || null,
+                  profilePath: actor.profile_path || null,
+                  order: actor.order || null
+                });
+              } catch (castError) {
+                console.error(`Error adding cast member ${actor.name}:`, castError.message);
+              }
+            }
+            
+            // Process important crew members (directors, writers)
+            const importantJobs = ["Director", "Screenplay", "Writer"];
+            const keyCrew = movieDetails.credits.crew
+              .filter(person => importantJobs.includes(person.job))
+              .map(person => {
+                // Normalize Writer and Screenplay roles to "Writer"
+                if (person.job === "Screenplay") {
+                  return { ...person, job: "Writer" };
+                }
+                return person;
+              });
+            
+            // Remove duplicates (same person might have multiple roles)
+            const uniqueCrew = [];
+            const seenPersons = new Set();
+            
+            for (const person of keyCrew) {
+              const key = `${person.id}-${person.job}`;
+              if (!seenPersons.has(key)) {
+                seenPersons.add(key);
+                uniqueCrew.push(person);
+              }
+            }
+            
+            // Add crew members to database
+            for (const person of uniqueCrew) {
+              try {
+                await MovieCrew.create({
+                  movieSelectionId: movieSelection.id,
+                  personId: person.id,
+                  name: person.name,
+                  job: person.job,
+                  department: person.department || null,
+                  profilePath: person.profile_path || null
+                });
+              } catch (crewError) {
+                console.error(`Error adding crew member ${person.name}:`, crewError.message);
+              }
+            }
+            
+            console.log(`Added ${topCast.length} cast and ${uniqueCrew.length} crew members to movie "${movieDetails.title}"`);
+          }
         }
       }
       
       // Process event details (cocktails, dinner, dessert)
-      const cocktails = row.Cocktail ? row.Cocktail.split(',').map(c => c.trim()).filter(Boolean) : [];
-      const meals = row.Dinner ? [row.Dinner] : [];
-      const desserts = row.Dessert ? [row.Dessert] : [];
+      // Properly handle empty or blank cells - ensure we don't have empty strings or "[ ]" values
+      const cocktails = row.Cocktail && row.Cocktail.trim() !== "" && row.Cocktail !== "[ ]" 
+        ? row.Cocktail.split(',').map(c => c.trim()).filter(Boolean) 
+        : [];
+        
+      const meals = row.Dinner && row.Dinner.trim() !== "" && row.Dinner !== "[ ]"
+        ? [row.Dinner.trim()] 
+        : [];
+        
+      const desserts = row.Dessert && row.Dessert.trim() !== "" && row.Dessert !== "[ ]"
+        ? [row.Dessert.trim()] 
+        : [];
       
       try {
-        // Create event details object
-        const eventDetailsData = {
-          movieMondayId: movieMonday.id,
-          cocktails,
-          meals,
-          desserts
-        };
+        // Only create event details if we have actual data
+        const hasData = cocktails.length > 0 || meals.length > 0 || desserts.length > 0;
         
-        // Create or update event details
-        const [eventDetails, detailsCreated] = await MovieMondayEventDetails.findOrCreate({
-          where: { movieMondayId: movieMonday.id },
-          defaults: eventDetailsData
+        // Log the values for debugging
+        console.log(`Event details for ${formattedDate}:`, {
+          cocktails: cocktails.length > 0 ? cocktails : "None",
+          meals: meals.length > 0 ? meals : "None",
+          desserts: desserts.length > 0 ? desserts : "None",
+          hasData
         });
+        
+        if (hasData) {
+          // Create or update event details using a direct approach
+          const [eventDetails, eventDetailsCreated] = await MovieMondayEventDetails.findOrCreate({
+            where: { 
+              movieMondayId: movieMonday.id 
+            },
+            defaults: {
+              movieMondayId: movieMonday.id,
+              cocktails: JSON.stringify(cocktails.length > 0 ? cocktails : []),
+              meals: JSON.stringify(meals.length > 0 ? meals : []),
+              desserts: JSON.stringify(desserts.length > 0 ? desserts : []),
+              notes: ""
+            }
+          });
+          
+          // If event details already existed, update them
+          if (!eventDetailsCreated) {
+            await eventDetails.update({
+              cocktails: JSON.stringify(cocktails.length > 0 ? cocktails : []),
+              meals: JSON.stringify(meals.length > 0 ? meals : []),
+              desserts: JSON.stringify(desserts.length > 0 ? desserts : [])
+            });
+          }
+          
+          console.log(`Event details ${eventDetailsCreated ? 'created' : 'updated'} for date ${formattedDate}`);
+        } else {
+          console.log(`No event details to create for date ${formattedDate}`);
+        }
       } catch (eventError) {
-        console.error(`Error creating event details for date ${formattedDate}:`, eventError.message);
+        console.error(`Error with event details for date ${formattedDate}:`, eventError.message);
         // Try a simpler approach if the first one fails
         try {
-          console.log('Attempting simplified event details creation...');
+          console.log('Attempting simplified event details creation using raw SQL...');
           await sequelize.query(
-            `INSERT INTO "MovieMondayEventDetails" ("movieMondayId", "cocktails", "meals", "desserts", "createdAt", "updatedAt") 
+            `INSERT INTO "MovieMondayEventDetails" 
+             ("movieMondayId", "cocktails", "meals", "desserts", "createdAt", "updatedAt") 
              VALUES (?, ?, ?, ?, NOW(), NOW()) 
-             ON CONFLICT ("movieMondayId") DO NOTHING;`,
+             ON CONFLICT ("movieMondayId") 
+             DO UPDATE SET 
+               "cocktails" = EXCLUDED."cocktails",
+               "meals" = EXCLUDED."meals", 
+               "desserts" = EXCLUDED."desserts",
+               "updatedAt" = NOW();`,
             { 
               replacements: [
                 movieMonday.id, 
@@ -255,20 +377,11 @@ async function processCSVData(csvData) {
               type: sequelize.QueryTypes.INSERT
             }
           );
+          console.log('Successfully used raw SQL for event details');
         } catch (fallbackError) {
           console.error('Simplified event details creation also failed:', fallbackError.message);
         }
       }
-      
-      if (!detailsCreated) {
-        // Update if needed
-        await eventDetails.update({
-          cocktails,
-          meals,
-          desserts
-        });
-      }
-
     } catch (error) {
       console.error(`Error processing row for date ${row.Date}:`, error);
       // Continue to the next row on error

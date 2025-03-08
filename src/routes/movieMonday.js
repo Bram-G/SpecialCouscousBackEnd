@@ -35,29 +35,44 @@ router.get("/cocktails", authMiddleware, async (req, res) => {
     
     movieMondays.forEach(mm => {
       if (mm.eventDetails && mm.eventDetails.cocktails) {
-        // Handle both array and string formats
-        let cocktailsList = mm.eventDetails.cocktails;
+        // Process cocktails data, regardless of format
+        let cocktailsList = [];
         
-        // If it's a string, split it into an array
-        if (typeof cocktailsList === 'string') {
-          cocktailsList = cocktailsList.split(',').map(c => c.trim()).filter(Boolean);
-        }
-        
-        // Add each cocktail to the set
-        if (Array.isArray(cocktailsList)) {
-          cocktailsList.forEach(cocktail => {
-            if (cocktail && cocktail.trim()) {
-              allCocktails.add(cocktail.trim());
+        if (Array.isArray(mm.eventDetails.cocktails)) {
+          // If already an array, use it directly
+          cocktailsList = mm.eventDetails.cocktails;
+        } else if (typeof mm.eventDetails.cocktails === 'string') {
+          try {
+            // Try to parse as JSON
+            const parsed = JSON.parse(mm.eventDetails.cocktails);
+            if (Array.isArray(parsed)) {
+              cocktailsList = parsed;
+            } else if (parsed && typeof parsed === 'string') {
+              cocktailsList = [parsed];
             }
-          });
+          } catch (e) {
+            // If not JSON, split by comma or use as single item
+            if (mm.eventDetails.cocktails.includes(',')) {
+              cocktailsList = mm.eventDetails.cocktails.split(',').map(c => c.trim());
+            } else {
+              cocktailsList = [mm.eventDetails.cocktails];
+            }
+          }
         }
+        
+        // Add each valid cocktail to the set
+        cocktailsList.forEach(cocktail => {
+          if (cocktail && typeof cocktail === 'string' && cocktail.trim() && 
+              cocktail !== '[]' && cocktail !== '[ ]') {
+            allCocktails.add(cocktail.trim());
+          }
+        });
       }
     });
     
     // Sort alphabetically
     const sortedCocktails = Array.from(allCocktails).sort();
     
-    // Log the result for debugging
     console.log(`Found ${sortedCocktails.length} unique cocktails`);
     
     res.json(sortedCocktails);
@@ -88,17 +103,38 @@ router.get("/meals", authMiddleware, async (req, res) => {
     
     movieMondays.forEach(mm => {
       if (mm.eventDetails && mm.eventDetails.meals) {
-        const meals = mm.eventDetails.meals;
-        // Handle both array and string cases
-        if (Array.isArray(meals)) {
-          meals.forEach(meal => {
-            if (meal && typeof meal === 'string') {
-              allMeals.add(meal.trim());
+        // Process meals data, handling different formats
+        let mealsList = [];
+        
+        if (Array.isArray(mm.eventDetails.meals)) {
+          // If already an array, use it directly
+          mealsList = mm.eventDetails.meals;
+        } else if (typeof mm.eventDetails.meals === 'string') {
+          try {
+            // Try to parse as JSON
+            const parsed = JSON.parse(mm.eventDetails.meals);
+            if (Array.isArray(parsed)) {
+              mealsList = parsed;
+            } else if (parsed && typeof parsed === 'string') {
+              mealsList = [parsed];
             }
-          });
-        } else if (typeof meals === 'string') {
-          allMeals.add(meals.trim());
+          } catch (e) {
+            // If not JSON, split by comma or use as single item
+            if (mm.eventDetails.meals.includes(',')) {
+              mealsList = mm.eventDetails.meals.split(',').map(m => m.trim());
+            } else {
+              mealsList = [mm.eventDetails.meals];
+            }
+          }
         }
+        
+        // Add each valid meal to the set
+        mealsList.forEach(meal => {
+          if (meal && typeof meal === 'string' && meal.trim() && 
+              meal !== '[]' && meal !== '[ ]') {
+            allMeals.add(meal.trim());
+          }
+        });
       }
     });
     
@@ -114,7 +150,7 @@ router.get("/meals", authMiddleware, async (req, res) => {
   }
 });
 
-// Similar update for desserts route
+// Fix for the desserts endpoint
 router.get("/desserts", authMiddleware, async (req, res) => {
   try {
     const userGroupIds = req.userGroups.map((group) => group.id);
@@ -135,17 +171,38 @@ router.get("/desserts", authMiddleware, async (req, res) => {
     
     movieMondays.forEach(mm => {
       if (mm.eventDetails && mm.eventDetails.desserts) {
-        const desserts = mm.eventDetails.desserts;
-        // Handle both array and string cases
-        if (Array.isArray(desserts)) {
-          desserts.forEach(dessert => {
-            if (dessert && typeof dessert === 'string') {
-              allDesserts.add(dessert.trim());
+        // Process desserts data, handling different formats
+        let dessertsList = [];
+        
+        if (Array.isArray(mm.eventDetails.desserts)) {
+          // If already an array, use it directly
+          dessertsList = mm.eventDetails.desserts;
+        } else if (typeof mm.eventDetails.desserts === 'string') {
+          try {
+            // Try to parse as JSON
+            const parsed = JSON.parse(mm.eventDetails.desserts);
+            if (Array.isArray(parsed)) {
+              dessertsList = parsed;
+            } else if (parsed && typeof parsed === 'string') {
+              dessertsList = [parsed];
             }
-          });
-        } else if (typeof desserts === 'string') {
-          allDesserts.add(desserts.trim());
+          } catch (e) {
+            // If not JSON, split by comma or use as single item
+            if (mm.eventDetails.desserts.includes(',')) {
+              dessertsList = mm.eventDetails.desserts.split(',').map(d => d.trim());
+            } else {
+              dessertsList = [mm.eventDetails.desserts];
+            }
+          }
         }
+        
+        // Add each valid dessert to the set
+        dessertsList.forEach(dessert => {
+          if (dessert && typeof dessert === 'string' && dessert.trim() && 
+              dessert !== '[]' && dessert !== '[ ]') {
+            allDesserts.add(dessert.trim());
+          }
+        });
       }
     });
     
@@ -1331,28 +1388,42 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
       });
     }
 
-    // Ensure arrays are passed for array fields
-    const mealsArray = meals || [];
-    const dessertsArray = desserts || [];
-    const cocktailsArray = cocktails || [];
+    // Clean and normalize the arrays before storing
+    const cleanCocktails = Array.isArray(cocktails)
+      ? cocktails.filter(c => c && typeof c === 'string' && c.trim() && c !== '[]' && c !== '[ ]')
+                 .map(c => c.trim())
+      : [];
+      
+    const cleanMeals = Array.isArray(meals)
+      ? meals.filter(m => m && typeof m === 'string' && m.trim() && m !== '[]' && m !== '[ ]')
+              .map(m => m.trim())
+      : [];
+      
+    const cleanDesserts = Array.isArray(desserts)
+      ? desserts.filter(d => d && typeof d === 'string' && d.trim() && d !== '[]' && d !== '[ ]')
+                .map(d => d.trim())
+      : [];
+    
+    const cleanNotes = notes && typeof notes === 'string' ? notes.trim() : '';
 
     // Update or create event details
     const [eventDetails, created] = await MovieMondayEventDetails.findOrCreate({
       where: { movieMondayId },
       defaults: {
-        meals: mealsArray,
-        desserts: dessertsArray,
-        cocktails: cocktailsArray,
-        notes: notes || '',
+        movieMondayId,
+        meals: cleanMeals,
+        desserts: cleanDesserts,
+        cocktails: cleanCocktails,
+        notes: cleanNotes,
       },
     });
 
     if (!created) {
       await eventDetails.update({
-        meals: mealsArray,
-        desserts: dessertsArray,
-        cocktails: cocktailsArray,
-        notes: notes || eventDetails.notes,
+        meals: cleanMeals,
+        desserts: cleanDesserts,
+        cocktails: cleanCocktails,
+        notes: cleanNotes || eventDetails.notes,
       });
     }
 
@@ -1362,5 +1433,4 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
     res.status(500).json({ message: "Failed to update event details" });
   }
 });
-
 module.exports = router;

@@ -85,58 +85,6 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
       key: 'id'
     }
   },
-  meals: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const rawValue = this.getDataValue('meals');
-      if (!rawValue) return [];
-      
-      try {
-        // Try to parse as JSON first
-        return JSON.parse(rawValue);
-      } catch (e) {
-        // If not valid JSON, treat as string and return as single-item array
-        return [rawValue];
-      }
-    },
-    set(val) {
-      if (Array.isArray(val)) {
-        this.setDataValue('meals', JSON.stringify(val));
-      } else if (typeof val === 'string') {
-        this.setDataValue('meals', JSON.stringify([val]));
-      } else {
-        this.setDataValue('meals', JSON.stringify([]));
-      }
-    }
-  },
-  
-  // Similar for desserts
-  desserts: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const rawValue = this.getDataValue('desserts');
-      if (!rawValue) return [];
-      
-      try {
-        return JSON.parse(rawValue);
-      } catch (e) {
-        return [rawValue];
-      }
-    },
-    set(val) {
-      if (Array.isArray(val)) {
-        this.setDataValue('desserts', JSON.stringify(val));
-      } else if (typeof val === 'string') {
-        this.setDataValue('desserts', JSON.stringify([val]));
-      } else {
-        this.setDataValue('desserts', JSON.stringify([]));
-      }
-    }
-  },
-  
-  // Ensure cocktails follows same pattern
   cocktails: {
     type: DataTypes.TEXT,
     allowNull: true,
@@ -145,19 +93,138 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
       if (!rawValue) return [];
       
       try {
-        return JSON.parse(rawValue);
+        // Parse JSON string to array
+        const parsed = JSON.parse(rawValue);
+        
+        // Make sure it's an array and filter out any problematic values
+        if (Array.isArray(parsed)) {
+          return parsed.filter(item => 
+            item && 
+            typeof item === 'string' && 
+            item.trim() !== '' &&
+            item !== '[]' &&
+            item !== '[ ]'
+          );
+        }
+        
+        // If not an array but valid content, return as single-item array
+        if (parsed && typeof parsed === 'string' && parsed.trim()) {
+          return [parsed.trim()];
+        }
+        
+        return [];
       } catch (e) {
-        return [rawValue];
+        // If not valid JSON, treat as single string if it has content
+        if (rawValue && typeof rawValue === 'string' && rawValue.trim() !== '' && 
+            rawValue !== '[]' && rawValue !== '[ ]') {
+          return [rawValue.trim()];
+        }
+        return [];
       }
     },
     set(val) {
+      // Normalize the input
+      let valueToStore = [];
+      
       if (Array.isArray(val)) {
-        this.setDataValue('cocktails', JSON.stringify(val));
-      } else if (typeof val === 'string') {
-        this.setDataValue('cocktails', JSON.stringify([val]));
-      } else {
-        this.setDataValue('cocktails', JSON.stringify([]));
+        // Filter out empty/null values and normalize strings
+        valueToStore = val.filter(v => v && typeof v === 'string' && v.trim())
+          .map(v => v.trim());
+      } else if (val && typeof val === 'string' && val.trim() && val !== '[]' && val !== '[ ]') {
+        valueToStore = [val.trim()];
       }
+      
+      this.setDataValue('cocktails', JSON.stringify(valueToStore));
+    }
+  },
+  
+  // Same pattern for meals
+  meals: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const rawValue = this.getDataValue('meals');
+      if (!rawValue) return [];
+      
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(item => 
+            item && 
+            typeof item === 'string' && 
+            item.trim() !== '' &&
+            item !== '[]' &&
+            item !== '[ ]'
+          );
+        }
+        if (parsed && typeof parsed === 'string' && parsed.trim()) {
+          return [parsed.trim()];
+        }
+        return [];
+      } catch (e) {
+        if (rawValue && typeof rawValue === 'string' && rawValue.trim() !== '' && 
+            rawValue !== '[]' && rawValue !== '[ ]') {
+          return [rawValue.trim()];
+        }
+        return [];
+      }
+    },
+    set(val) {
+      let valueToStore = [];
+      
+      if (Array.isArray(val)) {
+        valueToStore = val.filter(v => v && typeof v === 'string' && v.trim())
+          .map(v => v.trim());
+      } else if (val && typeof val === 'string' && val.trim() && val !== '[]' && val !== '[ ]') {
+        valueToStore = [val.trim()];
+      }
+      
+      this.setDataValue('meals', JSON.stringify(valueToStore));
+    }
+  },
+  
+  // Same pattern for desserts
+  desserts: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+    get() {
+      const rawValue = this.getDataValue('desserts');
+      if (!rawValue) return [];
+      
+      try {
+        const parsed = JSON.parse(rawValue);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(item => 
+            item && 
+            typeof item === 'string' && 
+            item.trim() !== '' &&
+            item !== '[]' &&
+            item !== '[ ]'
+          );
+        }
+        if (parsed && typeof parsed === 'string' && parsed.trim()) {
+          return [parsed.trim()];
+        }
+        return [];
+      } catch (e) {
+        if (rawValue && typeof rawValue === 'string' && rawValue.trim() !== '' && 
+            rawValue !== '[]' && rawValue !== '[ ]') {
+          return [rawValue.trim()];
+        }
+        return [];
+      }
+    },
+    set(val) {
+      let valueToStore = [];
+      
+      if (Array.isArray(val)) {
+        valueToStore = val.filter(v => v && typeof v === 'string' && v.trim())
+          .map(v => v.trim());
+      } else if (val && typeof val === 'string' && val.trim() && val !== '[]' && val !== '[ ]') {
+        valueToStore = [val.trim()];
+      }
+      
+      this.setDataValue('desserts', JSON.stringify(valueToStore));
     }
   }
 });
