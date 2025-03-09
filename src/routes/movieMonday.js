@@ -1007,50 +1007,45 @@ router.post("/:id/set-winner", authMiddleware, async (req, res) => {
       });
     }
 
+    // Find the specific movie selection
     const movieSelection = movieMonday.movieSelections.find(
-      (ms) => ms.id === movieSelectionId
+      (ms) => ms.id === parseInt(movieSelectionId)
     );
 
     if (!movieSelection) {
       return res.status(404).json({ message: "Movie selection not found" });
     }
 
-    await sequelize.transaction(async (t) => {
-      // If this movie is already the winner, we're removing winner status
-      if (movieSelection.isWinner) {
-        await MovieSelection.update(
-          { isWinner: false },
-          {
-            where: { id: movieSelectionId },
-            transaction: t,
-          }
-        );
-        movieMonday.status = "in-progress";
-      } else {
-        // Setting new winner
-        await MovieSelection.update(
-          { isWinner: false },
-          {
-            where: { movieMondayId: movieMonday.id },
-            transaction: t,
-          }
-        );
-        await MovieSelection.update(
-          { isWinner: true },
-          {
-            where: { id: movieSelectionId },
-            transaction: t,
-          }
-        );
-        movieMonday.status = "completed";
+    // Toggle the winner status of just this movie (without affecting others)
+    await MovieSelection.update(
+      { isWinner: !movieSelection.isWinner },
+      {
+        where: { id: movieSelectionId }
       }
-      await movieMonday.save({ transaction: t });
+    );
+
+    // Check if any movie is now marked as winner
+    const hasAnyWinner = await MovieSelection.findOne({
+      where: { 
+        movieMondayId: movieMonday.id,
+        isWinner: true
+      }
     });
+
+    // Update MovieMonday status based on whether any movie is a winner
+    if (hasAnyWinner) {
+      movieMonday.status = "completed";
+    } else {
+      movieMonday.status = "in-progress";
+    }
+    
+    await movieMonday.save();
 
     res.json({
       message: "Winner status updated successfully",
       movieMondayId: movieMonday.id,
-      winningMovieId: movieSelection.isWinner ? null : movieSelectionId,
+      movieSelectionId: movieSelectionId,
+      isWinner: !movieSelection.isWinner // Return the new winner status
     });
   } catch (error) {
     console.error("Error updating winner:", error);
