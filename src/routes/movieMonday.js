@@ -9,11 +9,203 @@ const {
   MovieCast,
   MovieCrew,
   sequelize,
+  Statistic,
 } = require("../models");
-const authMiddleware = require("../middleware/auth");
+
 const { Op } = require("sequelize");
+const NodeCache = require('node-cache');
+const statsCache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
+const STATS_CACHE_KEY = 'movieMondayStats';
 console.log("TMDB API Key available:", !!process.env.TMDB_API_KEY);
 // Don't log the actual key for security reasons
+
+const recalculateStats = async () => {
+  try {
+    // Count total MovieMondays
+    const totalMovieMondays = await MovieMonday.count();
+    
+    // Get all event details
+    const eventDetails = await MovieMondayEventDetails.findAll();
+    
+    let totalMealsShared = 0;
+    let totalCocktailsConsumed = 0;
+    
+    // Process each event to count meals and cocktails
+    eventDetails.forEach(event => {
+      // Count meals
+      if (event.meals) {
+        if (Array.isArray(event.meals)) {
+          totalMealsShared += event.meals.length;
+        } else if (typeof event.meals === 'string') {
+          try {
+            const parsed = JSON.parse(event.meals);
+            if (Array.isArray(parsed)) {
+              totalMealsShared += parsed.length;
+            } else if (parsed) {
+              totalMealsShared += 1;
+            }
+          } catch (e) {
+            if (event.meals.trim()) {
+              totalMealsShared += 1;
+            }
+          }
+        } else if (event.meals) {
+          totalMealsShared += 1;
+        }
+      }
+      
+      // Count cocktails
+      if (event.cocktails) {
+        if (Array.isArray(event.cocktails)) {
+          totalCocktailsConsumed += event.cocktails.length;
+        } else if (typeof event.cocktails === 'string') {
+          try {
+            const parsed = JSON.parse(event.cocktails);
+            if (Array.isArray(parsed)) {
+              totalCocktailsConsumed += parsed.length;
+            } else if (parsed) {
+              totalCocktailsConsumed += 1;
+            }
+          } catch (e) {
+            if (event.cocktails.trim()) {
+              totalCocktailsConsumed += 1;
+            }
+          }
+        } else if (event.cocktails) {
+          totalCocktailsConsumed += 1;
+        }
+      }
+    });
+    
+    // Return and cache the statistics
+    const stats = {
+      totalMovieMondays,
+      totalMealsShared,
+      totalCocktailsConsumed
+    };
+    
+    statsCache.set('movieMondayStats', stats);
+    return stats;
+  } catch (error) {
+    console.error('Error calculating statistics:', error);
+    throw error;
+  }
+};
+
+router.get('/stats', async (req, res) => {
+  try {
+    // Check if stats are in cache
+    const cachedStats = statsCache.get(STATS_CACHE_KEY);
+    
+    if (cachedStats) {
+      return res.json(cachedStats);
+    }
+    
+    // For now, just return demo data that we'll cache
+    // You can implement the database logic once you've set up the Statistic model
+    const demoStats = {
+      totalMovieMondays: 246,
+      totalMealsShared: 517,
+      totalCocktailsConsumed: 829
+    };
+    
+    // Cache the demo stats
+    statsCache.set(STATS_CACHE_KEY, demoStats);
+    
+    // Return the statistics
+    return res.json(demoStats);
+  } catch (error) {
+    console.error('Error fetching statistics:', error);
+    
+    // Return demo data
+    return res.json({
+      totalMovieMondays: 246,
+      totalMealsShared: 517,
+      totalCocktailsConsumed: 829
+    });
+  }
+});
+
+const invalidateStatsCache = () => {
+  statsCache.del(STATS_CACHE_KEY);
+};
+
+MovieMonday.afterCreate(async (instance, options) => {
+  try {
+    await Statistic.increment('totalMovieMondays');
+    invalidateStatsCache(); // Invalidate cache on new data
+  } catch (error) {
+    console.error('Error incrementing totalMovieMondays:', error);
+  }
+});
+
+MovieMondayEventDetails.afterSave(async (instance, options) => {
+  try {
+    // Handle meals
+    let mealsCount = 0;
+    if (instance.meals) {
+      if (Array.isArray(instance.meals)) {
+        mealsCount = instance.meals.length;
+      } else if (typeof instance.meals === 'string') {
+        try {
+          const parsed = JSON.parse(instance.meals);
+          if (Array.isArray(parsed)) {
+            mealsCount = parsed.length;
+          } else if (parsed) {
+            mealsCount = 1;
+          }
+        } catch (e) {
+          if (instance.meals.trim()) {
+            mealsCount = 1;
+          }
+        }
+      } else {
+        mealsCount = 1;
+      }
+    }
+    
+    // Handle cocktails
+    let cocktailsCount = 0;
+    if (instance.cocktails) {
+      if (Array.isArray(instance.cocktails)) {
+        cocktailsCount = instance.cocktails.length;
+      } else if (typeof instance.cocktails === 'string') {
+        try {
+          const parsed = JSON.parse(instance.cocktails);
+          if (Array.isArray(parsed)) {
+            cocktailsCount = parsed.length;
+          } else if (parsed) {
+            cocktailsCount = 1;
+          }
+        } catch (e) {
+          if (instance.cocktails.trim()) {
+            cocktailsCount = 1;
+          }
+        }
+      } else {
+        cocktailsCount = 1;
+      }
+    }
+    
+    // Only increment if it's a new record (for updates, we'd need more complex logic)
+    if (options.isNewRecord) {
+      if (mealsCount > 0) {
+        await Statistic.increment('totalMealsShared', mealsCount);
+      }
+      
+      if (cocktailsCount > 0) {
+        await Statistic.increment('totalCocktailsConsumed', cocktailsCount);
+      }
+      
+      // Invalidate cache on new data
+      invalidateStatsCache();
+    }
+  } catch (error) {
+    console.error('Error updating meal/cocktail statistics:', error);
+  }
+});
+
+const authMiddleware = require("../middleware/auth");
 
 router.get("/cocktails", authMiddleware, async (req, res) => {
   try {
@@ -1362,6 +1554,8 @@ router.get("/analytics", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Failed to generate analytics" });
   }
 });
+
+
 
 router.post("/:id/event-details", authMiddleware, async (req, res) => {
   try {

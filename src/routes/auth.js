@@ -5,19 +5,16 @@ const jwt = require('jsonwebtoken');
 const { User } = require('../models');
 const { Op } = require('sequelize');
 const auth = require('../middleware/auth');
+const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emailUtils');
 
+// Registration with email verification
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
     
     if (!username || !email || !password) {
       return res.status(400).json({ 
-        message: 'Missing required fields',
-        details: {
-          username: !username,
-          email: !email,
-          password: !password
-        }
+        message: 'Missing required fields'
       });
     }
 
@@ -32,8 +29,7 @@ router.post('/register', async (req, res) => {
     
     if (existingUser) {
       return res.status(409).json({ 
-        message: 'User already exists',
-        details: 'Username or email is already taken'
+        message: 'User already exists'
       });
     }
 
@@ -42,45 +38,72 @@ router.post('/register', async (req, res) => {
     const user = await User.create({
       username,
       email,
-      password: hashedPassword
+      password: hashedPassword,
+      isVerified: false
     });
 
-    // Create token with consistent id field
-    const token = jwt.sign(
-      { 
-        id: user.id,  // Changed from userId to id
-        username: user.username 
-      },
-      process.env.JWT_SECRET,
-      { expiresIn: '24h' }
-    );
+    // Send verification email
+     // Send verification email
+     await sendVerificationEmail(user, req.headers.host);
 
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000
-    });
-
-    res.status(201).json({ 
-      message: 'User created successfully',
-      token,
-      user: {
-        id: user.id,
-        username: user.username,
-        email: user.email
-      }
-    });
+     // Return success without token
+     res.status(201).json({ 
+       success: true,
+       message: 'User created successfully. Please check your email to verify your account.',
+       user: {
+         id: user.id,
+         username: user.username,
+         email: user.email,
+         isVerified: user.isVerified
+       }
+     });
 
   } catch (error) {
     console.error('Registration error:', error);
-    res.status(400).json({ 
-      message: error.message,
-      details: error.errors?.map(e => e.message) || 'Validation error'
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// Verify email
+router.get('/verify-email/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    
+    const user = await User.findOne({
+      where: {
+        verificationToken: token,
+        verificationTokenExpires: { [Op.gt]: Date.now() }
+      }
+    });
+    
+    if (!user) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid or expired verification token' 
+      });
+    }
+    
+    // Update user as verified
+    user.isVerified = true;
+    user.verificationToken = null;
+    user.verificationTokenExpires = null;
+    await user.save();
+    
+    // Return success
+    res.json({ 
+      success: true,
+      message: 'Email verified successfully. You can now log in.' 
+    });
+  } catch (error) {
+    console.error('Verification error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'An error occurred during verification' 
     });
   }
 });
 
+// Login with verification check
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -94,8 +117,16 @@ router.post('/login', async (req, res) => {
     if (!validPassword) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+    
+    // Check if email is verified
+    if (!user.isVerified) {
+      return res.status(403).json({ 
+        message: 'Email not verified. Please check your email to verify your account.',
+        needsVerification: true
+      });
+    }
 
-    // Generate token with consistent id field
+    // Generate token
     const token = jwt.sign(
       { 
         id: user.id,
@@ -104,18 +135,6 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '24h' }
     );
-
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 24 * 60 * 60 * 1000
-    });
-
-    console.log('Generated token payload:', {
-      id: user.id,
-      username: user.username
-    });
 
     res.json({ 
       token,
@@ -131,22 +150,95 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.get('/verify', auth, async (req, res) => {
+// Resend verification email
+router.post('/resend-verification', async (req, res) => {
   try {
-    // If the request made it past the authMiddleware, the token is valid
+    const { email } = req.body;
+    
+    const user = await User.findOne({ where: { email } });
+    
+    if (!user) {
+      // For security, don't reveal if email exists
+      return res.json({ 
+        success: true,
+        message: 'If your email exists in our system, a verification email has been sent.' 
+      });
+    }
+    
+    if (user.isVerified) {
+      return res.json({ 
+        success: true,
+        alreadyVerified: true,
+        message: 'Your email is already verified. You can log in now.' 
+      });
+    }
+    
+    // Send new verification email
+    await sendVerificationEmail(user, req.headers.host);
+    
     res.json({ 
-      valid: true,
-      user: {
-        id: req.user.id,
-        username: req.user.username
-      }
+      success: true,
+      message: 'Verification email has been resent to your email address.' 
     });
   } catch (error) {
-    console.error('Token verification error:', error);
-    res.status(401).json({ 
-      valid: false,
-      message: 'Invalid token'
+    console.error('Resend verification error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: 'An error occurred. Please try again later.' 
     });
+  }
+});
+
+// Forgot password
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    const user = await User.findOne({ where: { email } });
+    
+    if (!user) {
+      // For security, don't reveal if email exists
+      return res.json({ message: 'If your email exists in our system, a password reset email has been sent.' });
+    }
+    
+    // Send password reset email
+    await sendPasswordResetEmail(user, req.headers.host);
+    
+    res.json({ message: 'Password reset email has been sent.' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+// Reset password
+router.post('/reset-password/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+    
+    const user = await User.findOne({
+      where: {
+        passwordResetToken: token,
+        passwordResetExpires: { [Op.gt]: Date.now() }
+      }
+    });
+    
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired password reset token' });
+    }
+    
+    // Update password
+    const hashedPassword = await bcrypt.hash(password, 10);
+    user.password = hashedPassword;
+    user.passwordResetToken = null;
+    user.passwordResetExpires = null;
+    await user.save();
+    
+    res.json({ message: 'Password has been reset successfully. You can now log in with your new password.' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: error.message });
   }
 });
 

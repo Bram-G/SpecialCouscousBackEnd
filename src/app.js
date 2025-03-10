@@ -1,7 +1,7 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-
+const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
@@ -19,12 +19,27 @@ app.use(cors({
 }));
 
 // Routes
+
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 requests per 15 minutes
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  message: 'Too many requests from this IP, please try again after 15 minutes'
+});
+
+app.use('/auth/forgot-password', authLimiter);
+app.use('/auth/resend-verification', authLimiter);
+app.use('/auth/register', authLimiter);
+
 const authRoutes = require('./routes/auth');
+app.use('/auth', authRoutes);
+
 const movieMondayRoutes = require('./routes/movieMonday');
 const groupsRouter = require('./routes/groups');
 
 // Route middleware
-app.use('/auth', authRoutes);
 app.use('/api/movie-monday', movieMondayRoutes);
 app.use('/api', groupsRouter);
 

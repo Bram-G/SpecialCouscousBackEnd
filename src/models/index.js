@@ -1,5 +1,7 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
+const statisticsModel = require('./statistics');
+const Statistic = statisticsModel(sequelize);
 
 const User = sequelize.define("User", {
   username: {
@@ -27,6 +29,26 @@ const User = sequelize.define("User", {
       len: [6, 100],
     },
   },
+  isVerified: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  },
+  verificationToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  verificationTokenExpires: {
+    type: DataTypes.DATE,
+    allowNull: true
+  },
+  passwordResetToken: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  passwordResetExpires: {
+    type: DataTypes.DATE,
+    allowNull: true
+  }
 });
 
 const Group = sequelize.define("Group", {
