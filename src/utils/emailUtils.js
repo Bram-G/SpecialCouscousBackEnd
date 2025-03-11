@@ -17,32 +17,43 @@ const generateToken = () => {
 
 // Send verification email
 const sendVerificationEmail = async (user, host) => {
-  const token = generateToken();
-
-  // Save token to user
-  user.verificationToken = token;
-  user.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-  await user.save();
-
-  // Create verification URL
-  const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
-  const verificationURL = `${FRONTEND_URL}/verify-email/${token}`;
-
-  // Send email
-  const mailOptions = {
-    to: user.email,
-    from: process.env.EMAIL_USERNAME,
-    subject: "Movie Monday - Email Verification",
-    html: `
-      <h1>Welcome to Movie Monday!</h1>
-      <p>Please click the link below to verify your email address:</p>
-      <a href="${verificationURL}">Verify Email</a>
-      <p>This link will expire in 24 hours.</p>
-    `,
+    try {
+      const token = generateToken();
+  
+      // Save token to user
+      user.verificationToken = token;
+      user.verificationTokenExpires = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+      await user.save();
+  
+      // Create verification URL
+      const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:3000";
+      const verificationURL = `${FRONTEND_URL}/verify-email/${token}`;
+      
+  
+      // Send email
+      const mailOptions = {
+        to: user.email,
+        from: process.env.EMAIL_USERNAME,
+        subject: "Movie Monday - Email Verification",
+        html: `
+          <h1>Welcome to Movie Monday!</h1>
+          <p>Please click the link below to verify your email address:</p>
+          <a href="${verificationURL}">Verify Email</a>
+          <p>This link will expire in 24 hours.</p>
+        `,
+      };
+  
+      console.log('Attempting to send email to:', user.email);
+      console.log('Using email account:', process.env.EMAIL_USERNAME);
+      const info = await transporter.sendMail(mailOptions);
+      console.log('Email sent successfully:', info.response);
+      
+      return info;
+    } catch (error) {
+      console.error('Error sending verification email:', error);
+      throw error;
+    }
   };
-
-  return transporter.sendMail(mailOptions);
-};
 
 // Send password reset email
 const sendPasswordResetEmail = async (user, host) => {

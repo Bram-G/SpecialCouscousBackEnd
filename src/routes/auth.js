@@ -153,11 +153,13 @@ router.post('/login', async (req, res) => {
 // Resend verification email
 router.post('/resend-verification', async (req, res) => {
   try {
+
     const { email } = req.body;
     
     const user = await User.findOne({ where: { email } });
     
     if (!user) {
+
       // For security, don't reveal if email exists
       return res.json({ 
         success: true,
@@ -166,6 +168,7 @@ router.post('/resend-verification', async (req, res) => {
     }
     
     if (user.isVerified) {
+
       return res.json({ 
         success: true,
         alreadyVerified: true,
@@ -173,8 +176,16 @@ router.post('/resend-verification', async (req, res) => {
       });
     }
     
-    // Send new verification email
-    await sendVerificationEmail(user, req.headers.host);
+
+    
+    try {
+      // Send new verification email
+      await sendVerificationEmail(user, req.headers.host);
+      console.log('Verification email sent successfully');
+    } catch (emailError) {
+      console.error('Error sending verification email:', emailError);
+      // Return success anyway to not reveal email issues
+    }
     
     res.json({ 
       success: true,
