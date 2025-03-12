@@ -439,12 +439,26 @@ const WatchLater = sequelize.define(
       type: DataTypes.STRING,
       allowNull: true,
     },
+    // New fields
+    watched: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    isWinner: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: false
+    },
+    watchedDate: {
+      type: DataTypes.DATE,
+      allowNull: true
+    }
   },
   {
-    tableName: "WatchLater", // Changed from 'WatchLaters'
+    tableName: "WatchLater",
   }
 );
-
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
 Group.belongsToMany(User, { through: "GroupMembers" });

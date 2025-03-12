@@ -133,7 +133,7 @@ router.post('/login', async (req, res) => {
         username: user.username 
       },
       process.env.JWT_SECRET,
-      { expiresIn: '24h' }
+      { expiresIn: '14d' }
     );
 
     res.json({ 
@@ -251,6 +251,19 @@ router.post('/reset-password/:token', async (req, res) => {
     console.error('Reset password error:', error);
     res.status(500).json({ message: error.message });
   }
+});
+
+router.get('/verify', auth, (req, res) => {
+  // If we reach here, the auth middleware has already verified the token
+  // and attached the user to the request
+  res.json({
+    valid: true,
+    user: {
+      id: req.user.id,
+      username: req.user.username,
+      email: req.user.email
+    }
+  });
 });
 
 module.exports = router;

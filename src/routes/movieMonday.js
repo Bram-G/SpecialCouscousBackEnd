@@ -91,6 +91,33 @@ const recalculateStats = async () => {
     throw error;
   }
 };
+async function updateWatchlistForWinner(movieSelectionId, tmdbMovieId, isWinner) {
+  try {
+    // If this is not set as a winner, don't do anything
+    if (!isWinner) return;
+
+    // Find all watchlist entries for this movie
+    const watchlistEntries = await WatchLater.findAll({
+      where: { tmdbMovieId }
+    });
+
+    // Log for debugging
+    console.log(`Found ${watchlistEntries.length} watchlist entries for movie ${tmdbMovieId}`);
+
+    // Add a 'watched' flag to the watchlist entries
+    // Note: You'll need to add a 'watched' and 'isWinner' column to your WatchLater table
+    for (const entry of watchlistEntries) {
+      await entry.update({
+        watched: true,
+        isWinner: true
+      });
+      console.log(`Updated watchlist entry ${entry.id} to watched`);
+    }
+  } catch (error) {
+    console.error('Error updating watchlist for winner:', error);
+  }
+}
+
 
 router.get('/stats', async (req, res) => {
   try {
@@ -828,14 +855,32 @@ router.post("/watch-later", authMiddleware, async (req, res) => {
       tmdbMovieId,
       title,
       posterPath,
-      userId: req.user.id,
-    }); // Debug log
+      userId: req.user?.id,
+    });
 
     // Validate required fields
     if (!tmdbMovieId || !title) {
       return res.status(400).json({ message: "Missing required fields" });
     }
 
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+
+    // Check if already in watchlist
+    const existing = await WatchLater.findOne({
+      where: {
+        userId: req.user.id,
+        tmdbMovieId: parseInt(tmdbMovieId),
+      },
+    });
+
+    if (existing) {
+      console.log('Movie already in watchlist:', existing.id);
+      return res.status(200).json(existing); // Return existing entry (already in watchlist)
+    }
+
+    // Create new watchlist entry
     const [watchLaterMovie] = await WatchLater.findOrCreate({
       where: {
         userId: req.user.id,
@@ -845,12 +890,84 @@ router.post("/watch-later", authMiddleware, async (req, res) => {
         title,
         posterPath,
         userId: req.user.id,
+        watched: false,
+        isWinner: false
       },
     });
 
+    console.log('Created new watchlist entry:', watchLaterMovie.id);
     res.status(201).json(watchLaterMovie);
   } catch (error) {
     console.error("Error adding to watch later:", error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.get("/watch-later/status/:tmdbMovieId", authMiddleware, async (req, res) => {
+  try {
+    console.log("Checking status for:", {
+      tmdbMovieId: req.params.tmdbMovieId,
+      userId: req.user.id,
+    });
+
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+
+    const watchLaterMovie = await WatchLater.findOne({
+      where: {
+        userId: req.user.id,
+        tmdbMovieId: parseInt(req.params.tmdbMovieId, 10),
+      },
+    });
+
+    console.log("Watch later status result:", !!watchLaterMovie);
+
+    res.json({
+      isInWatchLater: !!watchLaterMovie,
+      // If we have a watchlist item, include its details
+      ...(watchLaterMovie ? {
+        id: watchLaterMovie.id,
+        watched: watchLaterMovie.watched,
+        isWinner: watchLaterMovie.isWinner
+      } : {})
+    });
+  } catch (error) {
+    console.error("Error checking watch later status:", error);
+    res.status(500).json({ message: error.message });
+  }
+});
+
+router.delete("/watch-later/:id", authMiddleware, async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: "User not authenticated" });
+    }
+
+    const { id } = req.params;
+    
+    console.log(`Attempting to delete watchlist item ${id} for user ${req.user.id}`);
+    
+    // Find the item first to verify ownership
+    const watchLaterItem = await WatchLater.findOne({
+      where: {
+        id: parseInt(id, 10),
+        userId: req.user.id
+      }
+    });
+    
+    if (!watchLaterItem) {
+      console.log(`Watch later item ${id} not found or does not belong to user ${req.user.id}`);
+      return res.status(404).json({ message: "Item not found in your watchlist" });
+    }
+    
+    // Delete the item
+    await watchLaterItem.destroy();
+    console.log(`Successfully deleted watchlist item ${id}`);
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error removing from watch later:", error);
     res.status(500).json({ message: error.message });
   }
 });
@@ -1200,9 +1317,18 @@ router.post("/:id/set-winner", authMiddleware, async (req, res) => {
     }
 
     // Find the specific movie selection
-    const movieSelection = movieMonday.movieSelections.find(
-      (ms) => ms.id === parseInt(movieSelectionId)
+    const movieSelection = await MovieSelection.findByPk(movieSelectionId);
+    const newWinnerStatus = !movieSelection.isWinner;
+    
+    await MovieSelection.update(
+      { isWinner: newWinnerStatus },
+      { where: { id: movieSelectionId } }
     );
+
+    // If setting as winner, update watchlists
+    if (newWinnerStatus) {
+      await updateWatchlistForWinner(movieSelectionId, movieSelection.tmdbMovieId, true);
+    }
 
     if (!movieSelection) {
       return res.status(404).json({ message: "Movie selection not found" });
@@ -1237,7 +1363,7 @@ router.post("/:id/set-winner", authMiddleware, async (req, res) => {
       message: "Winner status updated successfully",
       movieMondayId: movieMonday.id,
       movieSelectionId: movieSelectionId,
-      isWinner: !movieSelection.isWinner // Return the new winner status
+      isWinner: newWinnerStatus
     });
   } catch (error) {
     console.error("Error updating winner:", error);
