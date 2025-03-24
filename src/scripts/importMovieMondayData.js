@@ -137,7 +137,9 @@ async function processCSVData(csvData) {
     Bram: await getOrCreateUser('Bram', 'bram.gibson@hotmail.com', 'password'),
     Syd: await getOrCreateUser('Syd', 'syd@test.com', 'password'),
     Tim: await getOrCreateUser('Tim', 'tim@test.com', 'password'),
-    Ellie: await getOrCreateUser('Ellie', 'ellie@test.com', 'password')
+    Ellie: await getOrCreateUser('Ellie', 'ellie@test.com', 'password'),
+    Austin: await getOrCreateUser('Austin', 'Austin@test.com', 'password' ),
+    Kyle: await getOrCreateUser('Kyle', 'Kyle@test.com', 'password' )
   };
 
   // Create the Movie Monday group
@@ -332,9 +334,9 @@ async function processCSVData(csvData) {
             },
             defaults: {
               movieMondayId: movieMonday.id,
-              cocktails: JSON.stringify(cocktails.length > 0 ? cocktails : []),
-              meals: JSON.stringify(meals.length > 0 ? meals : []),
-              desserts: JSON.stringify(desserts.length > 0 ? desserts : []),
+              cocktails: cocktails.length > 0 ? cocktails : [], 
+              meals: meals.length > 0 ? meals : [],              
+              desserts: desserts.length > 0 ? desserts : [],     
               notes: ""
             }
           });
