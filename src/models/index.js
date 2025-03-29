@@ -2,6 +2,13 @@ const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
 const statisticsModel = require('./statistics');
 const Statistic = statisticsModel(sequelize);
+const watchlistCategoryModel = require('./watchlistCategory');
+const watchlistItemModel = require('./watchlistItem');
+const watchlistLikeModel = require('./watchlistLike');
+
+const WatchlistCategory = watchlistCategoryModel(sequelize);
+const WatchlistItem = watchlistItemModel(sequelize);
+const WatchlistLike = watchlistLikeModel(sequelize);
 
 const User = sequelize.define("User", {
   username: {
@@ -519,6 +526,41 @@ MovieSelection.hasMany(MovieCrew, {
 MovieCrew.belongsTo(MovieSelection, {
   foreignKey: "movieSelectionId",
 });
+// User-WatchlistCategory relationship (one-to-many)
+User.hasMany(WatchlistCategory, {
+  foreignKey: 'userId',
+  as: 'watchlistCategories'
+});
+WatchlistCategory.belongsTo(User, {
+  foreignKey: 'userId'
+});
+
+// WatchlistCategory-WatchlistItem relationship (one-to-many)
+WatchlistCategory.hasMany(WatchlistItem, {
+  foreignKey: 'categoryId',
+  as: 'items'
+});
+WatchlistItem.belongsTo(WatchlistCategory, {
+  foreignKey: 'categoryId'
+});
+
+// WatchlistCategory-WatchlistLike relationship (one-to-many)
+WatchlistCategory.hasMany(WatchlistLike, {
+  foreignKey: 'watchlistCategoryId',
+  as: 'likes'
+});
+WatchlistLike.belongsTo(WatchlistCategory, {
+  foreignKey: 'watchlistCategoryId'
+});
+
+// User-WatchlistLike relationship (one-to-many)
+User.hasMany(WatchlistLike, {
+  foreignKey: 'userId',
+  as: 'watchlistLikes'
+});
+WatchlistLike.belongsTo(User, {
+  foreignKey: 'userId'
+});
 
 module.exports = {
   MovieMonday,
@@ -531,4 +573,7 @@ module.exports = {
   Movie,
   sequelize,
   MovieMondayEventDetails,
+  WatchlistCategory,
+  WatchlistItem,
+  WatchlistLike,
 };

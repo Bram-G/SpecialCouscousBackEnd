@@ -38,10 +38,13 @@ app.use('/auth', authRoutes);
 
 const movieMondayRoutes = require('./routes/movieMonday');
 const groupsRouter = require('./routes/groups');
+const watchlistRoutes = require('./routes/watchlists');
+
 
 // Route middleware
 app.use('/api/movie-monday', movieMondayRoutes);
 app.use('/api', groupsRouter);
+app.use('/api/watchlists', watchlistRoutes);
 
 // Error handling middleware - should be after routes
 app.use((err, req, res, next) => {
