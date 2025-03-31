@@ -5,7 +5,6 @@ const Statistic = statisticsModel(sequelize);
 const watchlistCategoryModel = require('./watchlistCategory');
 const watchlistItemModel = require('./watchlistItem');
 const watchlistLikeModel = require('./watchlistLike');
-
 const WatchlistCategory = watchlistCategoryModel(sequelize);
 const WatchlistItem = watchlistItemModel(sequelize);
 const WatchlistLike = watchlistLikeModel(sequelize);
@@ -422,50 +421,6 @@ const MovieCrew = sequelize.define(
   }
 );
 
-const WatchLater = sequelize.define(
-  "WatchLater",
-  {
-    id: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    userId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-    tmdbMovieId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-    },
-    title: {
-      type: DataTypes.STRING,
-      allowNull: false,
-    },
-    posterPath: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    // New fields
-    watched: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
-    },
-    isWinner: {
-      type: DataTypes.BOOLEAN,
-      allowNull: false,
-      defaultValue: false
-    },
-    watchedDate: {
-      type: DataTypes.DATE,
-      allowNull: true
-    }
-  },
-  {
-    tableName: "WatchLater",
-  }
-);
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
 Group.belongsToMany(User, { through: "GroupMembers" });
@@ -483,7 +438,7 @@ MovieMonday.belongsTo(User, {
   as: "picker",
 });
 
-// MovieSelection relationships (remove the belongsToMany and use hasMany/belongsTo)
+// MovieSelection relationships
 MovieMonday.hasMany(MovieSelection, {
   foreignKey: "movieMondayId",
   as: "movieSelections",
@@ -501,16 +456,7 @@ MovieMondayEventDetails.belongsTo(MovieMonday, {
   foreignKey: "movieMondayId",
 });
 
-// WatchLater relationships
-User.hasMany(WatchLater, {
-  foreignKey: "userId",
-  as: "watchLaterMovies",
-});
-WatchLater.belongsTo(User, {
-  foreignKey: "userId",
-});
-
-//Cast relationships
+// Cast relationships
 MovieSelection.hasMany(MovieCast, {
   foreignKey: "movieSelectionId",
   as: "cast",
@@ -526,6 +472,7 @@ MovieSelection.hasMany(MovieCrew, {
 MovieCrew.belongsTo(MovieSelection, {
   foreignKey: "movieSelectionId",
 });
+
 // User-WatchlistCategory relationship (one-to-many)
 User.hasMany(WatchlistCategory, {
   foreignKey: 'userId',
@@ -568,7 +515,6 @@ module.exports = {
   MovieCast,
   MovieCrew,
   User,
-  WatchLater,
   Group,
   Movie,
   sequelize,
@@ -576,4 +522,5 @@ module.exports = {
   WatchlistCategory,
   WatchlistItem,
   WatchlistLike,
+  Statistic
 };

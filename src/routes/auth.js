@@ -35,29 +35,46 @@ router.post('/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    const user = await User.create({
-      username,
-      email,
-      password: hashedPassword,
-      isVerified: false
-    });
+    // Use a transaction to ensure both user and default watchlist are created
+    const transaction = await sequelize.transaction();
+    
+    try {
+      const user = await User.create({
+        username,
+        email,
+        password: hashedPassword,
+        isVerified: false
+      }, { transaction });
 
-    // Send verification email
-     // Send verification email
-     await sendVerificationEmail(user, req.headers.host);
+      // Create a default "My Watchlist" for the new user
+      await WatchlistCategory.create({
+        name: 'My Watchlist',
+        description: 'Your default watchlist for saved movies',
+        userId: user.id,
+        isPublic: false
+      }, { transaction });
 
-     // Return success without token
-     res.status(201).json({ 
-       success: true,
-       message: 'User created successfully. Please check your email to verify your account.',
-       user: {
-         id: user.id,
-         username: user.username,
-         email: user.email,
-         isVerified: user.isVerified
-       }
-     });
+      // Send verification email
+      await sendVerificationEmail(user, req.headers.host);
+      
+      await transaction.commit();
 
+      // Return success without token
+      res.status(201).json({ 
+        success: true,
+        message: 'User created successfully. Please check your email to verify your account.',
+        user: {
+          id: user.id,
+          username: user.username,
+          email: user.email,
+          isVerified: user.isVerified
+        }
+      });
+    } catch (error) {
+      // If anything goes wrong, roll back the transaction
+      await transaction.rollback();
+      throw error;
+    }
   } catch (error) {
     console.error('Registration error:', error);
     res.status(400).json({ message: error.message });

@@ -803,4 +803,157 @@ router.get('/user/:userId/public', async (req, res) => {
   }
 });
 
+router.get('/status/:tmdbMovieId', auth, async (req, res) => {
+  try {
+    const { tmdbMovieId } = req.params;
+    
+    if (!tmdbMovieId) {
+      return res.status(400).json({ message: 'Movie ID is required' });
+    }
+    
+    // Find all watchlist items for this movie across all user's watchlists
+    const watchlistItems = await WatchlistItem.findAll({
+      where: { tmdbMovieId: parseInt(tmdbMovieId) },
+      include: [{
+        model: WatchlistCategory,
+        where: { userId: req.user.id },
+        attributes: ['id', 'name']
+      }]
+    });
+    
+    // Check if movie is in any watchlist
+    if (watchlistItems.length === 0) {
+      return res.json({ 
+        inWatchlist: false,
+        watchlists: []
+      });
+    }
+    
+    // Get the default watchlist
+    const { getDefaultWatchlist } = require('../utils/watchlistUtils');
+    const defaultWatchlist = await getDefaultWatchlist(req.user.id);
+    
+    // Find if it's in the default watchlist
+    const inDefaultWatchlist = watchlistItems.some(item => 
+      item.WatchlistCategory.id === defaultWatchlist.id
+    );
+    
+    // Format response with all watchlists containing this movie
+    const watchlists = watchlistItems.map(item => ({
+      watchlistId: item.WatchlistCategory.id,
+      watchlistName: item.WatchlistCategory.name,
+      itemId: item.id,
+      isDefault: item.WatchlistCategory.id === defaultWatchlist.id
+    }));
+    
+    res.json({
+      inWatchlist: true,
+      inDefaultWatchlist,
+      watchlists
+    });
+  } catch (error) {
+    console.error('Error checking watchlist status:', error);
+    res.status(500).json({ message: 'Failed to check watchlist status' });
+  }
+});
+
+router.post('/quick-add', auth, async (req, res) => {
+  try {
+    const { tmdbMovieId, title, posterPath } = req.body;
+    
+    if (!tmdbMovieId || !title) {
+      return res.status(400).json({ message: 'Movie ID and title are required' });
+    }
+
+    const { addToDefaultWatchlist } = require('../utils/watchlistUtils');
+    const result = await addToDefaultWatchlist(req.user.id, { tmdbMovieId, title, posterPath });
+    
+    if (result.alreadyExists) {
+      return res.status(200).json({ 
+        message: 'Movie already in watchlist',
+        watchlistItem: result.item
+      });
+    }
+    
+    res.status(201).json({
+      message: 'Added to "My Watchlist"',
+      watchlistItem: result.item
+    });
+  } catch (error) {
+    console.error('Error adding to watchlist:', error);
+    res.status(500).json({ message: 'Failed to add movie to watchlist' });
+  }
+});
+
+// Get user's default watchlist
+router.get('/default', auth, async (req, res) => {
+  try {
+    const { getDefaultWatchlist } = require('../utils/watchlistUtils');
+    const defaultWatchlist = await getDefaultWatchlist(req.user.id);
+    
+    // Get the count of movies
+    const WatchlistItem = require('../models').WatchlistItem;
+    const count = await WatchlistItem.count({
+      where: { categoryId: defaultWatchlist.id }
+    });
+    
+    res.json({
+      ...defaultWatchlist.get({ plain: true }),
+      moviesCount: count
+    });
+  } catch (error) {
+    console.error('Error fetching default watchlist:', error);
+    res.status(500).json({ message: 'Failed to fetch default watchlist' });
+  }
+});
+
+router.get('/check-movie/:tmdbMovieId', auth, async (req, res) => {
+  const { tmdbMovieId } = req.params;
+  
+  try {
+    // Get all user's watchlist categories
+    const categories = await WatchlistCategory.findAll({
+      where: { userId: req.user.id },
+      attributes: ['id', 'name']
+    });
+    
+    if (categories.length === 0) {
+      return res.json({ isInWatchlist: false });
+    }
+    
+    const categoryIds = categories.map(cat => cat.id);
+    
+    // Find any watchlist items matching this movie
+    const watchlistItems = await WatchlistItem.findAll({
+      where: { 
+        tmdbMovieId: parseInt(tmdbMovieId),
+        categoryId: { [Op.in]: categoryIds }
+      },
+      include: [{
+        model: WatchlistCategory,
+        attributes: ['id', 'name']
+      }]
+    });
+
+    if (watchlistItems.length === 0) {
+      return res.json({ isInWatchlist: false });
+    }
+
+    // Return all categories containing this movie
+    const movieCategories = watchlistItems.map(item => ({
+      id: item.WatchlistCategory.id,
+      name: item.WatchlistCategory.name,
+      watchlistItemId: item.id
+    }));
+
+    res.json({
+      isInWatchlist: true,
+      categories: movieCategories
+    });
+  } catch (error) {
+    console.error('Error checking movie in watchlists:', error);
+    res.status(500).json({ message: 'Failed to check movie in watchlists' });
+  }
+});
+
 module.exports = router;

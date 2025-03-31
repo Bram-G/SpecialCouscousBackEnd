@@ -1,23 +1,11 @@
 const express = require("express");
 const router = express.Router();
-const {
-  MovieMonday,
-  MovieSelection,
-  User,
-  WatchLater,
-  MovieMondayEventDetails,
-  MovieCast,
-  MovieCrew,
-  sequelize,
-  Statistic,
-} = require("../models");
-
+const { MovieMonday, MovieSelection, User, WatchlistCategory, WatchlistItem, MovieMondayEventDetails, MovieCast, MovieCrew, sequelize, Statistic } = require("../models");
 const { Op } = require("sequelize");
 const NodeCache = require('node-cache');
-const statsCache = new NodeCache({ stdTTL: 3600 }); // Cache for 1 hour
+const statsCache = new NodeCache({ stdTTL: 3600 });
 const STATS_CACHE_KEY = 'movieMondayStats';
 console.log("TMDB API Key available:", !!process.env.TMDB_API_KEY);
-// Don't log the actual key for security reasons
 
 const recalculateStats = async () => {
   try {
@@ -91,33 +79,47 @@ const recalculateStats = async () => {
     throw error;
   }
 };
-async function updateWatchlistForWinner(movieSelectionId, tmdbMovieId, isWinner) {
+async function updateWatchlistsForWinner(movieSelectionId, tmdbMovieId, isWinner) {
   try {
     // If this is not set as a winner, don't do anything
     if (!isWinner) return;
 
-    // Find all watchlist entries for this movie
-    const watchlistEntries = await WatchLater.findAll({
+    // Find all watchlist entries for this movie across all users and categories
+    const watchlistEntries = await WatchlistItem.findAll({
       where: { tmdbMovieId }
     });
 
     // Log for debugging
     console.log(`Found ${watchlistEntries.length} watchlist entries for movie ${tmdbMovieId}`);
 
-    // Add a 'watched' flag to the watchlist entries
-    // Note: You'll need to add a 'watched' and 'isWinner' column to your WatchLater table
+    // Update each entry
     for (const entry of watchlistEntries) {
       await entry.update({
         watched: true,
-        isWinner: true
+        isWinner: true,
+        watchedDate: new Date()
       });
       console.log(`Updated watchlist entry ${entry.id} to watched`);
     }
   } catch (error) {
-    console.error('Error updating watchlist for winner:', error);
+    console.error('Error updating watchlists for winner:', error);
   }
 }
 
+async function getDefaultWatchlist(userId) {
+  const [defaultWatchlist] = await WatchlistCategory.findOrCreate({
+    where: {
+      userId,
+      name: 'My Watchlist'
+    },
+    defaults: {
+      description: 'Your default watchlist for movies to watch',
+      isPublic: false
+    }
+  });
+  
+  return defaultWatchlist;
+}
 
 router.get('/stats', async (req, res) => {
   try {
@@ -301,7 +303,6 @@ router.get("/cocktails", authMiddleware, async (req, res) => {
   }
 });
 
-// For the meals route
 router.get("/meals", authMiddleware, async (req, res) => {
   try {
     const userGroupIds = req.userGroups.map((group) => group.id);
@@ -369,7 +370,6 @@ router.get("/meals", authMiddleware, async (req, res) => {
   }
 });
 
-// Fix for the desserts endpoint
 router.get("/desserts", authMiddleware, async (req, res) => {
   try {
     const userGroupIds = req.userGroups.map((group) => group.id);
@@ -829,179 +829,6 @@ router.put("/update-picker", authMiddleware, async (req, res) => {
   }
 });
 
-// Get user's watch later list
-router.get("/watch-later", authMiddleware, async (req, res) => {
-  try {
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ message: "User not authenticated" });
-    }
-
-    const watchLaterMovies = await WatchLater.findAll({
-      where: { userId: req.user.id },
-      raw: true,
-    });
-
-    res.json(watchLaterMovies);
-  } catch (error) {
-    console.error("Error fetching watch later list:", error);
-    res.status(500).json({ message: error.message });
-  }
-});
-// Add to watch later list
-router.post("/watch-later", authMiddleware, async (req, res) => {
-  try {
-    const { tmdbMovieId, title, posterPath } = req.body;
-    console.log("Adding to watch later:", {
-      tmdbMovieId,
-      title,
-      posterPath,
-      userId: req.user?.id,
-    });
-
-    // Validate required fields
-    if (!tmdbMovieId || !title) {
-      return res.status(400).json({ message: "Missing required fields" });
-    }
-
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ message: "User not authenticated" });
-    }
-
-    // Check if already in watchlist
-    const existing = await WatchLater.findOne({
-      where: {
-        userId: req.user.id,
-        tmdbMovieId: parseInt(tmdbMovieId),
-      },
-    });
-
-    if (existing) {
-      console.log('Movie already in watchlist:', existing.id);
-      return res.status(200).json(existing); // Return existing entry (already in watchlist)
-    }
-
-    // Create new watchlist entry
-    const [watchLaterMovie] = await WatchLater.findOrCreate({
-      where: {
-        userId: req.user.id,
-        tmdbMovieId: parseInt(tmdbMovieId),
-      },
-      defaults: {
-        title,
-        posterPath,
-        userId: req.user.id,
-        watched: false,
-        isWinner: false
-      },
-    });
-
-    console.log('Created new watchlist entry:', watchLaterMovie.id);
-    res.status(201).json(watchLaterMovie);
-  } catch (error) {
-    console.error("Error adding to watch later:", error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-router.get("/watch-later/status/:tmdbMovieId", authMiddleware, async (req, res) => {
-  try {
-    console.log("Checking status for:", {
-      tmdbMovieId: req.params.tmdbMovieId,
-      userId: req.user.id,
-    });
-
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ message: "User not authenticated" });
-    }
-
-    const watchLaterMovie = await WatchLater.findOne({
-      where: {
-        userId: req.user.id,
-        tmdbMovieId: parseInt(req.params.tmdbMovieId, 10),
-      },
-    });
-
-    console.log("Watch later status result:", !!watchLaterMovie);
-
-    res.json({
-      isInWatchLater: !!watchLaterMovie,
-      // If we have a watchlist item, include its details
-      ...(watchLaterMovie ? {
-        id: watchLaterMovie.id,
-        watched: watchLaterMovie.watched,
-        isWinner: watchLaterMovie.isWinner
-      } : {})
-    });
-  } catch (error) {
-    console.error("Error checking watch later status:", error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-router.delete("/watch-later/:id", authMiddleware, async (req, res) => {
-  try {
-    if (!req.user || !req.user.id) {
-      return res.status(401).json({ message: "User not authenticated" });
-    }
-
-    const { id } = req.params;
-    
-    console.log(`Attempting to delete watchlist item ${id} for user ${req.user.id}`);
-    
-    // Find the item first to verify ownership
-    const watchLaterItem = await WatchLater.findOne({
-      where: {
-        id: parseInt(id, 10),
-        userId: req.user.id
-      }
-    });
-    
-    if (!watchLaterItem) {
-      console.log(`Watch later item ${id} not found or does not belong to user ${req.user.id}`);
-      return res.status(404).json({ message: "Item not found in your watchlist" });
-    }
-    
-    // Delete the item
-    await watchLaterItem.destroy();
-    console.log(`Successfully deleted watchlist item ${id}`);
-    
-    res.json({ success: true });
-  } catch (error) {
-    console.error("Error removing from watch later:", error);
-    res.status(500).json({ message: error.message });
-  }
-});
-
-// Check if movie is in watch later list
-router.get(
-  "/watch-later/status/:tmdbMovieId",
-  authMiddleware,
-  async (req, res) => {
-    try {
-      console.log("Checking status for:", {
-        tmdbMovieId: req.params.tmdbMovieId,
-        userId: req.user.id,
-      }); // Debug log
-
-      const watchLaterMovie = await WatchLater.findOne({
-        where: {
-          userId: req.user.id,
-          tmdbMovieId: parseInt(req.params.tmdbMovieId),
-        },
-      });
-
-      console.log("Watch later status result:", watchLaterMovie); // Debug log
-
-      res.json({
-        isInWatchLater: !!watchLaterMovie,
-      });
-    } catch (error) {
-      console.error("Error checking watch later status:", error);
-      res.status(500).json({ message: error.message });
-    }
-  }
-);
-
 router.get("/available", authMiddleware, async (req, res) => {
   try {
     const userGroupIds = req.userGroups.map((group) => group.id);
@@ -1189,7 +1016,6 @@ router.post("/create", authMiddleware, async (req, res) => {
   }
 });
 
-// Get movie mondays for multiple dates
 router.post("/dates", authMiddleware, async (req, res) => {
   try {
     const { dates } = req.body;
@@ -1218,7 +1044,6 @@ router.post("/dates", authMiddleware, async (req, res) => {
   }
 });
 
-// Add movie to movie monday
 router.post("/add-movie", authMiddleware, async (req, res) => {
   try {
     const { date, tmdbMovieId } = req.body;
@@ -1250,26 +1075,34 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
         .json({ message: "Already has maximum number of movies" });
     }
 
-    // Fetch movie details from watch later
-    const watchLaterMovie = await WatchLater.findOne({
+    // Fetch the user's watchlist categories
+    const categories = await WatchlistCategory.findAll({
+      where: { userId: req.user.id },
+      attributes: ['id']
+    });
+    
+    const categoryIds = categories.map(cat => cat.id);
+    
+    // Find movie in any of the user's watchlists
+    const watchlistItem = await WatchlistItem.findOne({
       where: {
-        userId: req.user.id,
-        tmdbMovieId,
-      },
+        categoryId: { [Op.in]: categoryIds },
+        tmdbMovieId: parseInt(tmdbMovieId),
+      }
     });
 
-    if (!watchLaterMovie) {
+    if (!watchlistItem) {
       return res
         .status(404)
-        .json({ message: "Movie not found in watch later list" });
+        .json({ message: "Movie not found in your watchlists" });
     }
 
     // Add movie selection
     const movieSelection = await MovieSelection.create({
       movieMondayId: movieMonday.id,
       tmdbMovieId,
-      title: watchLaterMovie.title,
-      posterPath: watchLaterMovie.posterPath,
+      title: watchlistItem.title,
+      posterPath: watchlistItem.posterPath,
     });
 
     // Update movie monday status
@@ -1283,6 +1116,7 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
       movieSelection,
     });
   } catch (error) {
+    console.error('Error adding movie:', error);
     res.status(400).json({ message: error.message });
   }
 });
@@ -1327,7 +1161,7 @@ router.post("/:id/set-winner", authMiddleware, async (req, res) => {
 
     // If setting as winner, update watchlists
     if (newWinnerStatus) {
-      await updateWatchlistForWinner(movieSelectionId, movieSelection.tmdbMovieId, true);
+      await updateWatchlistsForWinner(movieSelectionId, movieSelection.tmdbMovieId, true);
     }
 
     if (!movieSelection) {
@@ -1680,8 +1514,6 @@ router.get("/analytics", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Failed to generate analytics" });
   }
 });
-
-
 
 router.post("/:id/event-details", authMiddleware, async (req, res) => {
   try {
