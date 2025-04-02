@@ -13,16 +13,32 @@ const { Op } = require('sequelize');
 // Get all watchlist categories for the current user
 router.get('/categories', auth, async (req, res) => {
   try {
-    const categories = await WatchlistCategory.findAll({
+    const includeItems = req.query.include_items === 'true';
+    
+    // Build the query
+    const query = {
       where: { userId: req.user.id },
-      order: [['createdAt', 'DESC']],
-      include: [{
+      order: [['createdAt', 'DESC']]
+    };
+    
+    // Only include items if requested
+    if (includeItems) {
+      query.include = [{
+        model: WatchlistItem,
+        as: 'items',
+        attributes: ['id', 'tmdbMovieId', 'title', 'posterPath'],
+        limit: 4 // Only need a few items for the preview
+      }];
+    } else {
+      query.include = [{
         model: WatchlistItem,
         as: 'items',
         attributes: ['id'],
-        limit: 1
-      }]
-    });
+        limit: 1 // Just to check if there are any
+      }];
+    }
+    
+    const categories = await WatchlistCategory.findAll(query);
 
     // Add a count of movies in each category
     const categoriesWithCounts = await Promise.all(categories.map(async (category) => {
