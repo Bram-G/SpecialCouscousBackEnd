@@ -388,9 +388,24 @@ router.delete('/categories/:categoryId/movies/:itemId', auth, async (req, res) =
       return res.status(404).json({ message: 'Watchlist item not found or not authorized' });
     }
 
+    // Get the tmdbMovieId before deleting
+    const tmdbMovieId = watchlistItem.tmdbMovieId;
+    
     await watchlistItem.destroy();
     
-    res.json({ message: 'Movie removed from watchlist successfully' });
+    // Check if the movie is still in any watchlists
+    const remainingItems = await WatchlistItem.count({
+      where: { tmdbMovieId },
+      include: [{
+        model: WatchlistCategory,
+        where: { userId: req.user.id }
+      }]
+    });
+    
+    res.json({ 
+      message: 'Movie removed from watchlist successfully',
+      inWatchlist: remainingItems > 0
+    });
   } catch (error) {
     console.error('Error removing movie from watchlist:', error);
     res.status(500).json({ message: 'Failed to remove movie from watchlist' });
