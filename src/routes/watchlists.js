@@ -242,18 +242,22 @@ router.get('/categories/:id', auth, async (req, res) => {
 // Get public watchlist categories
 router.get('/public', async (req, res) => {
   try {
-    const { sort = 'popular', limit = 20, offset = 0 } = req.query;
+    const { sort = 'popular', limit = 20, offset = 0, include_items = 'false' } = req.query;
     
     let order;
     if (sort === 'latest') {
       order = [['createdAt', 'DESC']];
     } else if (sort === 'popular') {
       order = [['likesCount', 'DESC'], ['createdAt', 'DESC']];
+    } else if (sort === 'most_movies') {
+      // For now we'll sort by creation date, we'll adjust after getting counts
+      order = [['createdAt', 'DESC']];
     } else {
       order = [['createdAt', 'DESC']];
     }
     
-    const categories = await WatchlistCategory.findAndCountAll({
+    // Build the query options
+    const queryOptions = {
       where: { isPublic: true },
       order,
       limit: parseInt(limit),
@@ -263,15 +267,21 @@ router.get('/public', async (req, res) => {
           model: User,
           attributes: ['id', 'username'],
           required: true
-        },
-        {
-          model: WatchlistItem,
-          as: 'items',
-          attributes: ['id', 'posterPath'],
-          limit: 4
         }
       ]
-    });
+    };
+    
+    // Include items if requested
+    if (include_items === 'true') {
+      queryOptions.include.push({
+        model: WatchlistItem,
+        as: 'items',
+        attributes: ['id', 'tmdbMovieId', 'title', 'posterPath'],
+        limit: 10 // Limit items for performance
+      });
+    }
+    
+    const categories = await WatchlistCategory.findAndCountAll(queryOptions);
 
     // Add a count of movies in each category
     const categoriesWithCounts = await Promise.all(categories.rows.map(async (category) => {
@@ -279,11 +289,19 @@ router.get('/public', async (req, res) => {
         where: { categoryId: category.id }
       });
       
+      // Convert to a plain object for manipulation
+      const plainCategory = category.get({ plain: true });
+      
       return {
-        ...category.get({ plain: true }),
+        ...plainCategory,
         moviesCount: count
       };
     }));
+
+    // For "most_movies" sort, resort the results after getting counts
+    if (sort === 'most_movies') {
+      categoriesWithCounts.sort((a, b) => b.moviesCount - a.moviesCount);
+    }
 
     res.json({
       categories: categoriesWithCounts,
