@@ -827,6 +827,22 @@ router.get('/status/:tmdbMovieId', auth, async (req, res) => {
       return res.status(400).json({ message: 'Movie ID is required' });
     }
     
+    // Find all watchlist categories for this user
+    const categories = await WatchlistCategory.findAll({
+      where: { userId: req.user.id },
+      attributes: ['id', 'name']
+    });
+    
+    // Check if user has no watchlists
+    if (categories.length === 0) {
+      return res.json({ 
+        inWatchlist: false,
+        watchlists: []
+      });
+    }
+    
+    const categoryIds = categories.map(cat => cat.id);
+    
     // Find all watchlist items for this movie across all user's watchlists
     const watchlistItems = await WatchlistItem.findAll({
       where: { tmdbMovieId: parseInt(tmdbMovieId) },
@@ -898,6 +914,53 @@ router.post('/quick-add', auth, async (req, res) => {
   } catch (error) {
     console.error('Error adding to watchlist:', error);
     res.status(500).json({ message: 'Failed to add movie to watchlist' });
+  }
+});
+
+router.get('/all-items', auth, async (req, res) => {
+  try {
+    const watchlistItems = await WatchlistItem.findAll({
+      include: [{
+        model: WatchlistCategory,
+        where: { userId: req.user.id },
+        attributes: ['id', 'name']
+      }],
+      order: [['addedAt', 'DESC']]
+    });
+    
+    res.json(watchlistItems);
+  } catch (error) {
+    console.error('Error fetching all watchlist items:', error);
+    res.status(500).json({ message: 'Failed to fetch all watchlist items' });
+  }
+});
+router.get('/all-movies', auth, async (req, res) => {
+  try {
+    // Get all watchlist categories for this user
+    const categories = await WatchlistCategory.findAll({
+      where: { userId: req.user.id },
+      attributes: ['id']
+    });
+    
+    if (categories.length === 0) {
+      return res.json([]);
+    }
+    
+    const categoryIds = categories.map(cat => cat.id);
+    
+    // Get all watchlist items from all categories
+    const watchlistItems = await WatchlistItem.findAll({
+      where: { 
+        categoryId: { [Op.in]: categoryIds } 
+      },
+      attributes: ['id', 'tmdbMovieId', 'title', 'posterPath']
+    });
+    
+    // Return all items
+    res.json(watchlistItems);
+  } catch (error) {
+    console.error('Error fetching all watchlist movies:', error);
+    res.status(500).json({ message: 'Failed to fetch watchlist movies' });
   }
 });
 

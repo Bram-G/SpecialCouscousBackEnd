@@ -1,5 +1,5 @@
 // src/utils/watchlistUtils.js
-const { WatchlistCategory } = require('../models');
+const { WatchlistCategory, WatchlistItem } = require('../models');
 
 /**
  * Get or create a user's default watchlist
