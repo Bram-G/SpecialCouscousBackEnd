@@ -32,7 +32,8 @@ router.get('/users/group', auth, async (req, res) => {
       id: group.id,
       name: group.name,
       createdById: group.createdById,
-      members: group.Users
+      members: group.Users,
+      createdAt: group.createdAt
     });
   } catch (error) {
     console.error('Error fetching user group:', error);
