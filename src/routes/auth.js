@@ -2,7 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { User } = require('../models');
+const { User, WatchlistCategory, sequelize } = require('../models');
+const crypto = require('crypto')
 const { Op } = require('sequelize');
 const auth = require('../middleware/auth');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/emailUtils');
@@ -35,46 +36,47 @@ router.post('/register', async (req, res) => {
 
     const hashedPassword = await bcrypt.hash(password, 10);
     
-    // Use a transaction to ensure both user and default watchlist are created
-    const transaction = await sequelize.transaction();
+    // Generate a verification token
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     
+    // Create the user
+    const user = await User.create({
+      username,
+      email,
+      password: hashedPassword,
+      isVerified: false,
+      verificationToken,
+      verificationTokenExpires
+    });
+
+    // Create a default watchlist for the new user
+    await WatchlistCategory.create({
+      name: 'My Watchlist',
+      description: 'Your default watchlist for saved movies',
+      userId: user.id,
+      isPublic: false
+    });
+
+    // Send verification email
     try {
-      const user = await User.create({
-        username,
-        email,
-        password: hashedPassword,
-        isVerified: false
-      }, { transaction });
-
-      // Create a default "My Watchlist" for the new user
-      await WatchlistCategory.create({
-        name: 'My Watchlist',
-        description: 'Your default watchlist for saved movies',
-        userId: user.id,
-        isPublic: false
-      }, { transaction });
-
-      // Send verification email
-      await sendVerificationEmail(user, req.headers.host);
-      
-      await transaction.commit();
-
-      // Return success without token
-      res.status(201).json({ 
-        success: true,
-        message: 'User created successfully. Please check your email to verify your account.',
-        user: {
-          id: user.id,
-          username: user.username,
-          email: user.email,
-          isVerified: user.isVerified
-        }
-      });
-    } catch (error) {
-      // If anything goes wrong, roll back the transaction
-      await transaction.rollback();
-      throw error;
+      await sendVerificationEmail(user, req.headers.origin || req.headers.host);
+    } catch (emailError) {
+      console.error('Error sending verification email:', emailError);
+      // Continue with the registration process even if email fails
     }
+
+    // Return success without token
+    res.status(201).json({ 
+      success: true,
+      message: 'User created successfully. Please check your email to verify your account.',
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        isVerified: user.isVerified
+      }
+    });
   } catch (error) {
     console.error('Registration error:', error);
     res.status(400).json({ message: error.message });
@@ -85,26 +87,66 @@ router.post('/register', async (req, res) => {
 router.get('/verify-email/:token', async (req, res) => {
   try {
     const { token } = req.params;
+    console.log('Verification attempt with token:', token);
     
+    if (!token) {
+      console.log('Token missing in request');
+      return res.status(400).json({ 
+        success: false,
+        message: 'Verification token is missing' 
+      });
+    }
+    
+    // Find user with this token
     const user = await User.findOne({
       where: {
-        verificationToken: token,
-        verificationTokenExpires: { [Op.gt]: Date.now() }
+        verificationToken: token
       }
     });
     
+    // Log the result of the lookup
+    if (user) {
+      console.log(`Found user ${user.username} (${user.email}) with provided token`);
+    } else {
+      console.log('No user found with provided token:', token);
+    }
+    
+    // Check if user exists
     if (!user) {
       return res.status(400).json({ 
         success: false,
-        message: 'Invalid or expired verification token' 
+        message: 'Invalid verification token' 
+      });
+    }
+    
+    // Check if already verified
+    if (user.isVerified) {
+      console.log(`User ${user.email} is already verified`);
+      return res.json({ 
+        success: true,
+        alreadyVerified: true,
+        message: 'Your email is already verified. You can now log in.' 
+      });
+    }
+    
+    // Check if token is expired
+    if (user.verificationTokenExpires && new Date(user.verificationTokenExpires) < new Date()) {
+      console.log(`Token expired for user ${user.email}. Expired at: ${user.verificationTokenExpires}`);
+      return res.status(400).json({ 
+        success: false,
+        expired: true,
+        message: 'Verification token has expired. Please request a new one.' 
       });
     }
     
     // Update user as verified
+    console.log(`Verifying user ${user.email}`);
     user.isVerified = true;
     user.verificationToken = null;
     user.verificationTokenExpires = null;
     await user.save();
+    
+    console.log(`Successfully verified user ${user.email}`);
     
     // Return success
     res.json({ 
@@ -115,7 +157,7 @@ router.get('/verify-email/:token', async (req, res) => {
     console.error('Verification error:', error);
     res.status(500).json({ 
       success: false,
-      message: 'An error occurred during verification' 
+      message: 'An error occurred during verification. Please try again.' 
     });
   }
 });
@@ -124,22 +166,30 @@ router.get('/verify-email/:token', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+    console.log('Login attempt for user:', username);
+    
     const user = await User.findOne({ where: { username } });
     
     if (!user) {
+      console.log('No user found with username:', username);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     const validPassword = await bcrypt.compare(password, user.password);
     if (!validPassword) {
+      console.log('Invalid password for user:', username);
       return res.status(401).json({ message: 'Invalid credentials' });
     }
     
+    console.log(`User ${username} verification status: ${user.isVerified ? 'Verified' : 'Not Verified'}`);
+    
     // Check if email is verified
     if (!user.isVerified) {
+      console.log(`Login rejected for ${username} - not verified`);
       return res.status(403).json({ 
         message: 'Email not verified. Please check your email to verify your account.',
-        needsVerification: true
+        needsVerification: true,
+        email: user.email // Include email for easy resending
       });
     }
 
@@ -153,6 +203,8 @@ router.post('/login', async (req, res) => {
       { expiresIn: '14d' }
     );
 
+    console.log(`Successful login for ${username}`);
+    
     res.json({ 
       token,
       user: {
@@ -170,22 +222,31 @@ router.post('/login', async (req, res) => {
 // Resend verification email
 router.post('/resend-verification', async (req, res) => {
   try {
-
     const { email } = req.body;
+    console.log('Resend verification request for:', email);
+    
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email address is required'
+      });
+    }
     
     const user = await User.findOne({ where: { email } });
     
     if (!user) {
-
-      // For security, don't reveal if email exists
+      console.log('No user found with email:', email);
       return res.json({ 
         success: true,
         message: 'If your email exists in our system, a verification email has been sent.' 
       });
     }
     
+    console.log(`Found user: ${user.username} (${user.email}), isVerified: ${user.isVerified}`);
+    
+    // Check if already verified
     if (user.isVerified) {
-
+      console.log(`User ${user.email} is already verified`);
       return res.json({ 
         success: true,
         alreadyVerified: true,
@@ -193,20 +254,35 @@ router.post('/resend-verification', async (req, res) => {
       });
     }
     
-
+    // Create a new verification token
+    const verificationToken = require('crypto').randomBytes(32).toString('hex');
+    const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     
+    console.log(`Generated new token for ${user.email}:`, verificationToken);
+    
+    // Update user with new token
+    user.verificationToken = verificationToken;
+    user.verificationTokenExpires = verificationTokenExpires;
+    await user.save();
+    
+    console.log(`Updated user ${user.email} with new verification token`);
+    
+    // Send verification email
     try {
-      // Send new verification email
-      await sendVerificationEmail(user, req.headers.host);
-      console.log('Verification email sent successfully');
+      await sendVerificationEmail(user, req.headers.origin || req.headers.host);
+      console.log(`Successfully sent verification email to ${user.email}`);
     } catch (emailError) {
-      console.error('Error sending verification email:', emailError);
-      // Return success anyway to not reveal email issues
+      console.error(`Failed to send verification email to ${user.email}:`, emailError);
+      return res.status(500).json({ 
+        success: false,
+        message: 'Failed to send verification email. Please try again later.' 
+      });
     }
     
+    // Return success
     res.json({ 
       success: true,
-      message: 'Verification email has been resent to your email address.' 
+      message: 'Verification email has been sent to your email address.' 
     });
   } catch (error) {
     console.error('Resend verification error:', error);
@@ -236,6 +312,39 @@ router.post('/forgot-password', async (req, res) => {
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ message: error.message });
+  }
+});
+
+router.post('/check-verification', async (req, res) => {
+  try {
+    const { email } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    
+    const user = await User.findOne({ 
+      where: { email },
+      attributes: ['id', 'email', 'isVerified'] 
+    });
+    
+    if (!user) {
+      return res.json({ 
+        exists: false,
+        message: 'No account found with this email' 
+      });
+    }
+    
+    return res.json({
+      exists: true,
+      isVerified: user.isVerified,
+      message: user.isVerified 
+        ? 'Account is verified' 
+        : 'Account is not verified'
+    });
+  } catch (error) {
+    console.error('Verification check error:', error);
+    res.status(500).json({ message: 'Error checking verification status' });
   }
 });
 

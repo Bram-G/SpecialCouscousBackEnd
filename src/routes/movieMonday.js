@@ -323,20 +323,21 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
         repeatedMovies.set(movieKey, {
           tmdbMovieId: movie.tmdbMovieId,
           title: movie.title,
-          appearances: 0,
+          appearanceCount: 0, // Renamed from appearances to avoid confusion
           wins: 0,
-          appearances: [],
+          appearanceList: [], // New array field to store appearance details
           firstAppearance: monday.date
         });
       }
       
       const movieData = repeatedMovies.get(movieKey);
-      movieData.appearances++;
+      movieData.appearanceCount++; // Increment the counter
       if (movie.isWinner) {
         movieData.wins++;
       }
       
-      movieData.appearances.push({
+      // Push to the array of appearances
+      movieData.appearanceList.push({
         date: monday.date,
         isWinner: movie.isWinner,
         movieMondayId: monday.id
@@ -488,7 +489,8 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
     // Find previous appearances
     const movieKey = movie.tmdbMovieId.toString();
     if (repeatedMovies.has(movieKey)) {
-      movie.previousAppearances = repeatedMovies.get(movieKey).appearances.length;
+      // Use the new appearanceCount field instead of appearances
+      movie.previousAppearances = repeatedMovies.get(movieKey).appearanceCount;
     } else {
       movie.previousAppearances = 0;
     }
@@ -534,10 +536,18 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
     directorAppearances: Array.from(directorAppearances.values())
       .sort((a, b) => b.totalAppearances - a.totalAppearances),
     
-    // Repeat movies
+    // Repeat movies - Use appearanceCount in sorting and return appearanceList as appearances
     repeatedMovies: Array.from(repeatedMovies.values())
-      .filter(movie => movie.appearances > 0)
-      .sort((a, b) => b.appearances - a.appearances),
+    .filter(movie => movie.appearanceCount > 0)
+    .map(movie => ({
+      tmdbMovieId: movie.tmdbMovieId,
+      title: movie.title,
+      appearances: movie.appearanceCount, // Use this as the count
+      wins: movie.wins,
+      firstAppearance: movie.firstAppearance,
+      appearanceList: movie.appearanceList // Use a different name for the array
+    }))
+    .sort((a, b) => b.appearances - a.appearances),
     
     // Picker stats
     pickerStats: {
