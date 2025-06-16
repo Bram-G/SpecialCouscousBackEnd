@@ -11,7 +11,11 @@ app.use(express.json());
 app.use(cookieParser()); // Add this before routes but after express.json()
 
 app.use(cors({
-  origin: 'http://localhost:3000',
+  origin: [
+    'http://localhost:3000',           // Local development
+    'https://movie-monday-beta.vercel.app',  // Your Vercel URL
+    process.env.FRONTEND_URL           // Environment variable fallback
+  ].filter(Boolean), // Remove any undefined values
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
