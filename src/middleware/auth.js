@@ -76,6 +76,7 @@ const authMiddleware = async (req, res, next) => {
       const allowedOrigins = [
         "http://localhost:3000",
         "https://movie-monday-beta.vercel.app",
+        "https://movie-monday-rd5dji6cr-brams-projects-69a61965.vercel.app",
         process.env.FRONTEND_URL,
       ].filter(Boolean);
 
