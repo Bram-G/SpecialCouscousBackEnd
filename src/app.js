@@ -10,6 +10,31 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser()); // Add this before routes but after express.json()
 
+app.get('/setup-database', async (req, res) => {
+  try {
+    console.log('Starting database setup...');
+    
+    // Import your models to trigger table creation
+    const { sequelize } = require('./models');
+    
+    // This will create all tables based on your models
+    await sequelize.sync({ force: true });
+    
+    console.log('Database tables created successfully!');
+    res.json({ 
+      success: true, 
+      message: 'Database tables created successfully! You can now run your import script.' 
+    });
+  } catch (error) {
+    console.error('Database setup error:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+
 app.use(cors({
   origin: [
     'http://localhost:3000',           // Local development
