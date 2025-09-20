@@ -17,6 +17,7 @@ const NodeCache = require("node-cache");
 const statsCache = new NodeCache({ stdTTL: 3600 });
 const STATS_CACHE_KEY = "movieMondayStats";
 console.log("TMDB API Key available:", !!process.env.TMDB_API_KEY);
+const authMiddleware = require("../middleware/auth");
 
 const recalculateStats = async () => {
   try {
@@ -246,15 +247,19 @@ async function generateMovieMondayStats(movieMonday) {
 }
 
 async function generateHistoricalStats(currentMonday, allMovieMondays) {
+  console.log('Generating enhanced historical stats...');
+  
   // Initialize data structures
   const mealFrequencies = new Map();
   const cocktailFrequencies = new Map();
   const dessertFrequencies = new Map();
   const actorAppearances = new Map();
   const directorAppearances = new Map();
-  const repeatedMovies = new Map();
-  const pickerMovies = new Map();
-  const pickerGenres = new Map();
+  const genreAppearances = new Map();
+  const decadeAppearances = new Map();
+  
+  let totalMenuItems = 0;
+  let totalMovieMondays = allMovieMondays.length + 1; // +1 for current Monday
   
   // Process all past Movie Mondays
   allMovieMondays.forEach(monday => {
@@ -263,88 +268,38 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
       // Process meals
       (monday.eventDetails.meals || []).forEach(meal => {
         if (!mealFrequencies.has(meal)) {
-          mealFrequencies.set(meal, {
-            name: meal,
-            count: 0,
-            occurrences: []
-          });
+          mealFrequencies.set(meal, { count: 0, dates: [] });
         }
-        
-        const mealData = mealFrequencies.get(meal);
-        mealData.count++;
-        mealData.occurrences.push({
-          date: monday.date,
-          movieMondayId: monday.id
-        });
+        mealFrequencies.get(meal).count++;
+        mealFrequencies.get(meal).dates.push(monday.date);
+        totalMenuItems++;
       });
       
       // Process cocktails
       (monday.eventDetails.cocktails || []).forEach(cocktail => {
         if (!cocktailFrequencies.has(cocktail)) {
-          cocktailFrequencies.set(cocktail, {
-            name: cocktail,
-            count: 0,
-            occurrences: []
-          });
+          cocktailFrequencies.set(cocktail, { count: 0, dates: [] });
         }
-        
-        const cocktailData = cocktailFrequencies.get(cocktail);
-        cocktailData.count++;
-        cocktailData.occurrences.push({
-          date: monday.date,
-          movieMondayId: monday.id
-        });
+        cocktailFrequencies.get(cocktail).count++;
+        cocktailFrequencies.get(cocktail).dates.push(monday.date);
+        totalMenuItems++;
       });
       
       // Process desserts
       (monday.eventDetails.desserts || []).forEach(dessert => {
         if (!dessertFrequencies.has(dessert)) {
-          dessertFrequencies.set(dessert, {
-            name: dessert,
-            count: 0,
-            occurrences: []
-          });
+          dessertFrequencies.set(dessert, { count: 0, dates: [] });
         }
-        
-        const dessertData = dessertFrequencies.get(dessert);
-        dessertData.count++;
-        dessertData.occurrences.push({
-          date: monday.date,
-          movieMondayId: monday.id
-        });
+        dessertFrequencies.get(dessert).count++;
+        dessertFrequencies.get(dessert).dates.push(monday.date);
+        totalMenuItems++;
       });
     }
     
-    // Process movies, actors, directors
+    // Process movies for actor/director/genre stats
     monday.movieSelections.forEach(movie => {
-      // Track movies for repeat appearances
-      const movieKey = movie.tmdbMovieId.toString();
-      if (!repeatedMovies.has(movieKey)) {
-        repeatedMovies.set(movieKey, {
-          tmdbMovieId: movie.tmdbMovieId,
-          title: movie.title,
-          appearanceCount: 0, // Renamed from appearances to avoid confusion
-          wins: 0,
-          appearanceList: [], // New array field to store appearance details
-          firstAppearance: monday.date
-        });
-      }
-      
-      const movieData = repeatedMovies.get(movieKey);
-      movieData.appearanceCount++; // Increment the counter
-      if (movie.isWinner) {
-        movieData.wins++;
-      }
-      
-      // Push to the array of appearances
-      movieData.appearanceList.push({
-        date: monday.date,
-        isWinner: movie.isWinner,
-        movieMondayId: monday.id
-      });
-      
       // Track actors
-      movie.cast.forEach(actor => {
+      (movie.cast || []).forEach(actor => {
         const actorKey = actor.actorId.toString();
         if (!actorAppearances.has(actorKey)) {
           actorAppearances.set(actorKey, {
@@ -352,8 +307,7 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
             name: actor.name,
             totalAppearances: 0,
             wins: 0,
-            losses: 0,
-            appearances: []
+            winRate: 0
           });
         }
         
@@ -361,20 +315,12 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
         actorData.totalAppearances++;
         if (movie.isWinner) {
           actorData.wins++;
-        } else {
-          actorData.losses++;
         }
-        
-        actorData.appearances.push({
-          date: monday.date,
-          movieTitle: movie.title,
-          isWinner: movie.isWinner,
-          movieMondayId: monday.id
-        });
+        actorData.winRate = (actorData.wins / actorData.totalAppearances) * 100;
       });
       
       // Track directors
-      movie.crew.filter(c => c.job === 'Director').forEach(director => {
+      (movie.crew || []).filter(c => c.job === 'Director').forEach(director => {
         const directorKey = director.personId.toString();
         if (!directorAppearances.has(directorKey)) {
           directorAppearances.set(directorKey, {
@@ -382,8 +328,7 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
             name: director.name,
             totalAppearances: 0,
             wins: 0,
-            losses: 0,
-            appearances: []
+            winRate: 0
           });
         }
         
@@ -391,176 +336,732 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
         directorData.totalAppearances++;
         if (movie.isWinner) {
           directorData.wins++;
-        } else {
-          directorData.losses++;
         }
-        
-        directorData.appearances.push({
-          date: monday.date,
-          movieTitle: movie.title,
-          isWinner: movie.isWinner,
-          movieMondayId: monday.id
-        });
+        directorData.winRate = (directorData.wins / directorData.totalAppearances) * 100;
       });
       
-      // Track picker's movie and genre preferences
-      if (monday.picker.id === currentMonday.picker.id) {
-        // Track genres
-        if (movie.genres) {
-          (typeof movie.genres === 'string' ? JSON.parse(movie.genres) : movie.genres).forEach(genre => {
-            if (!pickerGenres.has(genre)) {
-              pickerGenres.set(genre, {
-                name: genre,
-                count: 0
-              });
-            }
-            
-            pickerGenres.get(genre).count++;
+      // Track genres
+      if (movie.genres) {
+        const genres = typeof movie.genres === 'string' ? JSON.parse(movie.genres) : movie.genres;
+        genres.forEach(genre => {
+          if (!genreAppearances.has(genre)) {
+            genreAppearances.set(genre, {
+              name: genre,
+              totalAppearances: 0,
+              wins: 0,
+              winRate: 0
+            });
+          }
+          
+          const genreData = genreAppearances.get(genre);
+          genreData.totalAppearances++;
+          if (movie.isWinner) {
+            genreData.wins++;
+          }
+          genreData.winRate = (genreData.wins / genreData.totalAppearances) * 100;
+        });
+      }
+      
+      // Track decades
+      if (movie.releaseYear) {
+        const decade = Math.floor(movie.releaseYear / 10) * 10;
+        const decadeKey = decade.toString();
+        if (!decadeAppearances.has(decadeKey)) {
+          decadeAppearances.set(decadeKey, {
+            decade: decadeKey,
+            totalAppearances: 0,
+            wins: 0,
+            winRate: 0
           });
         }
         
-        // Track the movie itself
-        if (!pickerMovies.has(movie.tmdbMovieId)) {
-          pickerMovies.set(movie.tmdbMovieId, {
-            isWinner: movie.isWinner
-          });
+        const decadeData = decadeAppearances.get(decadeKey);
+        decadeData.totalAppearances++;
+        if (movie.isWinner) {
+          decadeData.wins++;
         }
+        decadeData.winRate = (decadeData.wins / decadeData.totalAppearances) * 100;
       }
     });
   });
   
-  // Check current Movie Monday for new occurrences of meals, cocktails, etc.
+  // Now analyze current Monday's items for comparison
+  const currentMenuComparison = {
+    meals: [],
+    cocktails: [],
+    desserts: []
+  };
+  
+  const currentMovieComparison = {
+    actors: [],
+    directors: [],
+    genres: [],
+    decades: []
+  };
+  
+  // Compare current Monday's menu items
   if (currentMonday.eventDetails) {
-    // Add current meals
+    // Analyze current meals
     (currentMonday.eventDetails.meals || []).forEach(meal => {
-      if (!mealFrequencies.has(meal)) {
-        mealFrequencies.set(meal, {
-          name: meal,
-          count: 0,
-          occurrences: []
-        });
-      }
+      const historicalData = mealFrequencies.get(meal);
+      const popularity = historicalData ? 
+        ((historicalData.count / totalMovieMondays) * 100) : 0;
       
-      // Don't increment count yet since we want to show historic count
-      mealFrequencies.get(meal).occurrences.push({
-        date: currentMonday.date,
-        movieMondayId: currentMonday.id,
-        isCurrent: true
+      currentMenuComparison.meals.push({
+        name: meal,
+        historicalCount: historicalData ? historicalData.count : 0,
+        popularityPercentage: Math.round(popularity),
+        isNew: !historicalData,
+        lastSeen: historicalData ? historicalData.dates[historicalData.dates.length - 1] : null
       });
     });
     
-    // Add current cocktails
+    // Analyze current cocktails
     (currentMonday.eventDetails.cocktails || []).forEach(cocktail => {
-      if (!cocktailFrequencies.has(cocktail)) {
-        cocktailFrequencies.set(cocktail, {
-          name: cocktail,
-          count: 0,
-          occurrences: []
-        });
-      }
+      const historicalData = cocktailFrequencies.get(cocktail);
+      const popularity = historicalData ? 
+        ((historicalData.count / totalMovieMondays) * 100) : 0;
       
-      cocktailFrequencies.get(cocktail).occurrences.push({
-        date: currentMonday.date,
-        movieMondayId: currentMonday.id,
-        isCurrent: true
+      currentMenuComparison.cocktails.push({
+        name: cocktail,
+        historicalCount: historicalData ? historicalData.count : 0,
+        popularityPercentage: Math.round(popularity),
+        isNew: !historicalData,
+        lastSeen: historicalData ? historicalData.dates[historicalData.dates.length - 1] : null
       });
     });
     
-    // Add current desserts
+    // Analyze current desserts
     (currentMonday.eventDetails.desserts || []).forEach(dessert => {
-      if (!dessertFrequencies.has(dessert)) {
-        dessertFrequencies.set(dessert, {
-          name: dessert,
-          count: 0,
-          occurrences: []
-        });
-      }
+      const historicalData = dessertFrequencies.get(dessert);
+      const popularity = historicalData ? 
+        ((historicalData.count / totalMovieMondays) * 100) : 0;
       
-      dessertFrequencies.get(dessert).occurrences.push({
-        date: currentMonday.date,
-        movieMondayId: currentMonday.id,
-        isCurrent: true
+      currentMenuComparison.desserts.push({
+        name: dessert,
+        historicalCount: historicalData ? historicalData.count : 0,
+        popularityPercentage: Math.round(popularity),
+        isNew: !historicalData,
+        lastSeen: historicalData ? historicalData.dates[historicalData.dates.length - 1] : null
       });
     });
   }
   
-  // Process movie appearances for the current Monday
+  // Compare current Monday's movie data
   currentMonday.movieSelections.forEach(movie => {
-    // Find previous appearances
-    const movieKey = movie.tmdbMovieId.toString();
-    if (repeatedMovies.has(movieKey)) {
-      // Use the new appearanceCount field instead of appearances
-      movie.previousAppearances = repeatedMovies.get(movieKey).appearanceCount;
-    } else {
-      movie.previousAppearances = 0;
+    // Analyze actors
+    (movie.cast || []).forEach(actor => {
+      const historicalData = actorAppearances.get(actor.actorId.toString());
+      if (historicalData) {
+        currentMovieComparison.actors.push({
+          name: actor.name,
+          id: actor.actorId,
+          movieTitle: movie.title,
+          isWinner: movie.isWinner,
+          historicalAppearances: historicalData.totalAppearances,
+          historicalWins: historicalData.wins,
+          historicalWinRate: Math.round(historicalData.winRate)
+        });
+      } else {
+        currentMovieComparison.actors.push({
+          name: actor.name,
+          id: actor.actorId,
+          movieTitle: movie.title,
+          isWinner: movie.isWinner,
+          historicalAppearances: 0,
+          historicalWins: 0,
+          historicalWinRate: 0,
+          isNew: true
+        });
+      }
+    });
+    
+    // Analyze directors
+    (movie.crew || []).filter(c => c.job === 'Director').forEach(director => {
+      const historicalData = directorAppearances.get(director.personId.toString());
+      if (historicalData) {
+        currentMovieComparison.directors.push({
+          name: director.name,
+          id: director.personId,
+          movieTitle: movie.title,
+          isWinner: movie.isWinner,
+          historicalAppearances: historicalData.totalAppearances,
+          historicalWins: historicalData.wins,
+          historicalWinRate: Math.round(historicalData.winRate)
+        });
+      } else {
+        currentMovieComparison.directors.push({
+          name: director.name,
+          id: director.personId,
+          movieTitle: movie.title,
+          isWinner: movie.isWinner,
+          historicalAppearances: 0,
+          historicalWins: 0,
+          historicalWinRate: 0,
+          isNew: true
+        });
+      }
+    });
+    
+    // Analyze genres
+    if (movie.genres) {
+      const genres = typeof movie.genres === 'string' ? JSON.parse(movie.genres) : movie.genres;
+      genres.forEach(genre => {
+        const historicalData = genreAppearances.get(genre);
+        if (historicalData) {
+          currentMovieComparison.genres.push({
+            name: genre,
+            movieTitle: movie.title,
+            isWinner: movie.isWinner,
+            historicalAppearances: historicalData.totalAppearances,
+            historicalWins: historicalData.wins,
+            historicalWinRate: Math.round(historicalData.winRate)
+          });
+        } else {
+          currentMovieComparison.genres.push({
+            name: genre,
+            movieTitle: movie.title,
+            isWinner: movie.isWinner,
+            historicalAppearances: 0,
+            historicalWins: 0,
+            historicalWinRate: 0,
+            isNew: true
+          });
+        }
+      });
+    }
+    
+    // Analyze decades
+    if (movie.releaseYear) {
+      const decade = Math.floor(movie.releaseYear / 10) * 10;
+      const historicalData = decadeAppearances.get(decade.toString());
+      if (historicalData) {
+        currentMovieComparison.decades.push({
+          decade: decade,
+          movieTitle: movie.title,
+          isWinner: movie.isWinner,
+          historicalAppearances: historicalData.totalAppearances,
+          historicalWins: historicalData.wins,
+          historicalWinRate: Math.round(historicalData.winRate)
+        });
+      } else {
+        currentMovieComparison.decades.push({
+          decade: decade,
+          movieTitle: movie.title,
+          isWinner: movie.isWinner,
+          historicalAppearances: 0,
+          historicalWins: 0,
+          historicalWinRate: 0,
+          isNew: true
+        });
+      }
     }
   });
   
-  // Format data for return
-  const result = {
-    // Meal, cocktail, dessert frequencies
-    mealFrequencies: Array.from(mealFrequencies.values()).map(meal => {
-      const occurrences = meal.occurrences.sort((a, b) => new Date(b.date) - new Date(a.date));
-      return {
-        name: meal.name,
-        count: meal.count,
-        lastSeenDate: occurrences[0]?.date,
-        firstSeenDate: occurrences[occurrences.length - 1]?.date
-      };
-    }).sort((a, b) => b.count - a.count),
+  return {
+    // Menu comparison for current Monday
+    currentMenuComparison,
     
-    cocktailFrequencies: Array.from(cocktailFrequencies.values()).map(cocktail => {
-      const occurrences = cocktail.occurrences.sort((a, b) => new Date(b.date) - new Date(a.date));
-      return {
-        name: cocktail.name,
-        count: cocktail.count,
-        lastSeenDate: occurrences[0]?.date,
-        firstSeenDate: occurrences[occurrences.length - 1]?.date
-      };
-    }).sort((a, b) => b.count - a.count),
+    // Movie comparison for current Monday
+    currentMovieComparison,
     
-    dessertFrequencies: Array.from(dessertFrequencies.values()).map(dessert => {
-      const occurrences = dessert.occurrences.sort((a, b) => new Date(b.date) - new Date(a.date));
-      return {
-        name: dessert.name,
-        count: dessert.count,
-        lastSeenDate: occurrences[0]?.date,
-        firstSeenDate: occurrences[occurrences.length - 1]?.date
-      };
-    }).sort((a, b) => b.count - a.count),
-    
-    // Actors and directors
-    actorAppearances: Array.from(actorAppearances.values())
-      .sort((a, b) => b.totalAppearances - a.totalAppearances),
-    
-    directorAppearances: Array.from(directorAppearances.values())
-      .sort((a, b) => b.totalAppearances - a.totalAppearances),
-    
-    // Repeat movies - Use appearanceCount in sorting and return appearanceList as appearances
-    repeatedMovies: Array.from(repeatedMovies.values())
-    .filter(movie => movie.appearanceCount > 0)
-    .map(movie => ({
-      tmdbMovieId: movie.tmdbMovieId,
-      title: movie.title,
-      appearances: movie.appearanceCount, // Use this as the count
-      wins: movie.wins,
-      firstAppearance: movie.firstAppearance,
-      appearanceList: movie.appearanceList // Use a different name for the array
-    }))
-    .sort((a, b) => b.appearances - a.appearances),
-    
-    // Picker stats
-    pickerStats: {
-      totalPicks: Array.from(pickerMovies.values()).length,
-      winRate: Array.from(pickerMovies.values()).filter(movie => movie.isWinner).length / 
-               Math.max(Array.from(pickerMovies.values()).length, 1),
-      mostSelectedGenres: Array.from(pickerGenres.values())
+    // Overall historical stats (for reference)
+    overallStats: {
+      totalMovieMondays,
+      mostPopularMeals: Array.from(mealFrequencies.entries())
+        .map(([name, data]) => ({
+          name,
+          count: data.count,
+          popularityPercentage: Math.round((data.count / totalMovieMondays) * 100)
+        }))
         .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
+      
+      mostPopularCocktails: Array.from(cocktailFrequencies.entries())
+        .map(([name, data]) => ({
+          name,
+          count: data.count,
+          popularityPercentage: Math.round((data.count / totalMovieMondays) * 100)
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
+        
+      mostPopularDesserts: Array.from(dessertFrequencies.entries())
+        .map(([name, data]) => ({
+          name,
+          count: data.count,
+          popularityPercentage: Math.round((data.count / totalMovieMondays) * 100)
+        }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5),
+        
+      topActors: Array.from(actorAppearances.values())
+        .sort((a, b) => b.totalAppearances - a.totalAppearances)
+        .slice(0, 10),
+        
+      topDirectors: Array.from(directorAppearances.values())
+        .sort((a, b) => b.totalAppearances - a.totalAppearances)
+        .slice(0, 10),
+        
+      topGenres: Array.from(genreAppearances.values())
+        .sort((a, b) => b.totalAppearances - a.totalAppearances)
+        .slice(0, 10)
     }
   };
-  
-  return result;
 }
+router.get("/all", authMiddleware, async (req, res) => {
+  try {
+    const { includeHistory } = req.query;
+    const userGroupIds = req.userGroups.map((group) => group.id);
+
+    if (userGroupIds.length === 0) {
+      return res.json([]);
+    }
+
+    const movieMondays = await MovieMonday.findAll({
+      where: {
+        GroupId: userGroupIds,
+      },
+      include: [
+        {
+          model: MovieSelection,
+          as: "movieSelections",
+          include: [
+            {
+              model: MovieCast,
+              as: "cast",
+              attributes: [
+                "id",
+                "actorId",
+                "name",
+                "character",
+                "profilePath",
+                "order",
+              ],
+            },
+            {
+              model: MovieCrew,
+              as: "crew",
+              attributes: [
+                "id",
+                "personId",
+                "name",
+                "job",
+                "department",
+                "profilePath",
+              ],
+            },
+          ],
+        },
+        {
+          model: User,
+          as: "picker",
+          attributes: ["id", "username"],
+        },
+        {
+          model: MovieMondayEventDetails,
+          as: "eventDetails",
+        },
+      ],
+      order: [['date', 'DESC']],
+    });
+
+    // Transform data for easier consumption by analytics
+    const enhancedMovieMondays = movieMondays.map((mm) => {
+      const plainMM = mm.get({ plain: true });
+
+      // Parse genres if needed (depending on your getter/setter implementation)
+      plainMM.movieSelections = plainMM.movieSelections.map((movie) => {
+        // Extract all directors from crew
+        const directors = movie.crew
+          .filter((person) => person.job === "Director")
+          .map((director) => ({
+            id: director.personId,
+            name: director.name,
+          }));
+
+        // Extract all writers (including Screenplay)
+        const writers = movie.crew
+          .filter(
+            (person) => person.job === "Writer" || person.job === "Screenplay"
+          )
+          .map((writer) => ({
+            id: writer.personId,
+            name: writer.name,
+            job: writer.job,
+          }));
+
+        // Format the movie with additional derived fields
+        return {
+          ...movie,
+          // Set primary director (first in the list)
+          director: directors.length > 0 ? directors[0].name : "Unknown",
+          // Include all directors
+          directors: directors,
+          // Include all writers
+          writers: writers,
+          // Format actors for easier access
+          actors: movie.cast.map((actor) => ({
+            id: actor.actorId,
+            name: actor.name,
+            character: actor.character,
+          })),
+        };
+      });
+
+      return plainMM;
+    });
+
+    res.json(enhancedMovieMondays);
+  } catch (error) {
+    console.error("Error fetching all movie mondays:", error);
+    res.status(500).json({ error: "Failed to fetch movie data" });
+  }
+});
+
+// GET movie monday details by ID (with proper ID validation)
+router.get("/details/:id", authMiddleware, async (req, res) => {
+  try {
+    const { includeHistory } = req.query;
+    const movieMondayId = parseInt(req.params.id);
+
+    // Validate ID is a number
+    if (isNaN(movieMondayId)) {
+      return res.status(400).json({ 
+        message: "Invalid Movie Monday ID. Must be a number." 
+      });
+    }
+
+    console.log('Fetching Movie Monday details:', {
+      movieMondayId,
+      includeHistory: !!includeHistory,
+      userId: req.user.id,
+      userGroups: req.userGroups.map(g => g.id)
+    });
+
+    const movieMonday = await MovieMonday.findOne({
+      where: { id: movieMondayId },
+      include: [
+        {
+          model: User,
+          as: 'picker',
+          attributes: ['id', 'username']
+        },
+        {
+          model: MovieSelection,
+          as: 'movieSelections',
+          include: [
+            {
+              model: MovieCast,
+              as: 'cast',
+              attributes: ['id', 'actorId', 'name', 'character', 'profilePath', 'order']
+            },
+            {
+              model: MovieCrew,
+              as: 'crew',
+              attributes: ['id', 'personId', 'name', 'job', 'department', 'profilePath']
+            }
+          ]
+        },
+        {
+          model: MovieMondayEventDetails,
+          as: 'eventDetails'
+        }
+      ]
+    });
+
+    if (!movieMonday) {
+      return res.status(404).json({ message: 'Movie Monday not found' });
+    }
+
+    // Verify user's access to this MovieMonday (check if it's in their group)
+    const userGroupIds = req.userGroups.map(group => group.id);
+    if (!userGroupIds.includes(movieMonday.GroupId)) {
+      return res.status(403).json({ message: 'Not authorized to view this Movie Monday' });
+    }
+
+    // Get basic stats (genres, actors, directors for this movie monday)
+    const stats = await generateMovieMondayStats(movieMonday);
+    
+    // Build the response
+    const response = {
+      movieMonday,
+      stats
+    };
+    
+    // Add historical data if requested
+    if (includeHistory) {
+      // Get all past movie mondays from the same group
+      const allMovieMondays = await MovieMonday.findAll({
+        where: {
+          GroupId: movieMonday.GroupId,
+          id: { [Op.ne]: movieMonday.id } // Exclude current movie monday
+        },
+        include: [
+          {
+            model: User,
+            as: 'picker',
+            attributes: ['id', 'username']
+          },
+          {
+            model: MovieSelection,
+            as: 'movieSelections',
+            include: [
+              {
+                model: MovieCast,
+                as: 'cast',
+                attributes: ['id', 'actorId', 'name']
+              },
+              {
+                model: MovieCrew,
+                as: 'crew',
+                attributes: ['id', 'personId', 'name', 'job']
+              }
+            ]
+          },
+          {
+            model: MovieMondayEventDetails,
+            as: 'eventDetails'
+          }
+        ],
+        order: [['date', 'DESC']]
+      });
+      
+      // Generate historical stats
+      response.history = await generateHistoricalStats(movieMonday, allMovieMondays);
+    }
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching Movie Monday details:', error);
+    res.status(500).json({ message: 'Failed to fetch Movie Monday details' });
+  }
+});
+
+// GET movie monday by date (existing functionality preserved)
+router.get("/:date", authMiddleware, async (req, res) => {
+  try {
+    const dateStr = decodeURIComponent(req.params.date);
+    console.log("Searching for MovieMonday:", {
+      dateStr,
+      userGroups: req.userGroups.map((g) => g.id),
+      userId: req.user.id,
+    });
+
+    // Validate date format (YYYY-MM-DD) - this prevents 'all' from being processed here
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      console.warn(`Invalid date format: ${dateStr}`);
+      return res.status(400).json({
+        message: "Invalid date format. Expected YYYY-MM-DD format.",
+        receivedDate: dateStr
+      });
+    }
+
+    // Get group IDs from req.userGroups
+    const userGroupIds = req.userGroups.map((group) => group.id);
+
+    if (!userGroupIds.length) {
+      return res.json({
+        date: dateStr,
+        status: "not_created",
+        movieSelections: [],
+      });
+    }
+
+    // Use sequelize.literal to ensure proper date formatting for the database
+    const movieMonday = await MovieMonday.findOne({
+      where: {
+        GroupId: userGroupIds,
+        date: dateStr, // Direct comparison with YYYY-MM-DD string format
+      },
+      include: [
+        {
+          model: MovieSelection,
+          as: "movieSelections",
+        },
+        {
+          model: User,
+          as: "picker",
+          attributes: ["id", "username"],
+        },
+        {
+          model: MovieMondayEventDetails,
+          as: "eventDetails",
+        },
+      ],
+    });
+
+    console.log("Query result:", {
+      found: !!movieMonday,
+      data: movieMonday
+        ? {
+            id: movieMonday.id,
+            date: movieMonday.date,
+            status: movieMonday.status,
+            GroupId: movieMonday.GroupId,
+          }
+        : null,
+    });
+
+    if (!movieMonday) {
+      return res.json({
+        date: dateStr,
+        status: "not_created",
+        movieSelections: [],
+      });
+    }
+
+    // Process cocktails for consistency (ensure it's an array)
+    if (movieMonday.eventDetails && movieMonday.eventDetails.cocktails) {
+      if (typeof movieMonday.eventDetails.cocktails === "string") {
+        movieMonday.eventDetails.cocktails = movieMonday.eventDetails.cocktails
+          .split(",")
+          .map((c) => c.trim())
+          .filter(Boolean);
+      }
+    }
+
+    res.json(movieMonday);
+  } catch (error) {
+    console.error("Error in GET /:date route:", error);
+    res.status(500).json({ message: "Failed to fetch Movie Monday data" });
+  }
+});
+
+// Helper function for generating stats (you may need to implement this)
+async function generateMovieMondayStats(movieMonday) {
+  // This is a placeholder - implement based on your existing stats logic
+  try {
+    const stats = {
+      totalMovies: movieMonday.movieSelections?.length || 0,
+      winningMovie: movieMonday.movieSelections?.find(m => m.isWinner),
+      // Add more stats as needed
+    };
+    return stats;
+  } catch (error) {
+    console.error('Error generating stats:', error);
+    return {};
+  }
+}
+
+// Helper function for generating historical stats (you may need to implement this)
+async function generateHistoricalStats(currentMovieMonday, allMovieMondays) {
+  // This is a placeholder - implement based on your existing historical stats logic
+  try {
+    const history = {
+      totalPastEvents: allMovieMondays.length,
+      // Add more historical analysis as needed
+    };
+    return history;
+  } catch (error) {
+    console.error('Error generating historical stats:', error);
+    return {};
+  }
+}
+
+router.get("/:id", authMiddleware, async (req, res) => {
+  try {
+    const movieMondayId = req.params.id;
+    const includeHistory = req.query.includeHistory !== 'false'; // Default to true
+
+    const movieMonday = await MovieMonday.findOne({
+      where: { id: movieMondayId },
+      include: [
+        {
+          model: User,
+          as: 'picker',
+          attributes: ['id', 'username']
+        },
+        {
+          model: MovieSelection,
+          as: 'movieSelections',
+          include: [
+            {
+              model: MovieCast,
+              as: 'cast',
+              attributes: ['id', 'actorId', 'name', 'character', 'profilePath', 'order']
+            },
+            {
+              model: MovieCrew,
+              as: 'crew',
+              attributes: ['id', 'personId', 'name', 'job', 'department', 'profilePath']
+            }
+          ]
+        },
+        {
+          model: MovieMondayEventDetails,
+          as: 'eventDetails'
+        }
+      ]
+    });
+
+    if (!movieMonday) {
+      return res.status(404).json({ message: 'Movie Monday not found' });
+    }
+
+    // Verify user's access to this MovieMonday
+    const userGroupIds = req.userGroups.map(group => group.id);
+    if (!userGroupIds.includes(movieMonday.GroupId)) {
+      return res.status(403).json({ message: 'Not authorized to view this Movie Monday' });
+    }
+
+    // Get basic stats (kept for compatibility)
+    const stats = await generateMovieMondayStats(movieMonday);
+    
+    // Build the response
+    const response = {
+      movieMonday,
+      stats
+    };
+    
+    // Add enhanced historical data
+    if (includeHistory) {
+      // Get all past movie mondays from the same group
+      const allMovieMondays = await MovieMonday.findAll({
+        where: {
+          GroupId: movieMonday.GroupId,
+          id: { [Op.ne]: movieMonday.id }
+        },
+        include: [
+          {
+            model: User,
+            as: 'picker',
+            attributes: ['id', 'username']
+          },
+          {
+            model: MovieSelection,
+            as: 'movieSelections',
+            include: [
+              {
+                model: MovieCast,
+                as: 'cast',
+                attributes: ['id', 'actorId', 'name']
+              },
+              {
+                model: MovieCrew,
+                as: 'crew',
+                attributes: ['id', 'personId', 'name', 'job']
+              }
+            ]
+          },
+          {
+            model: MovieMondayEventDetails,
+            as: 'eventDetails'
+          }
+        ],
+        order: [['date', 'DESC']]
+      });
+      
+      // Generate enhanced historical stats
+      response.enhancedHistory = await generateHistoricalStats(movieMonday, allMovieMondays);
+    }
+    
+    res.json(response);
+  } catch (error) {
+    console.error('Error fetching Movie Monday details:', error);
+    res.status(500).json({ message: 'Failed to fetch Movie Monday details' });
+  }
+});
 
 router.get("/stats", async (req, res) => {
   try {
@@ -675,7 +1176,7 @@ MovieMondayEventDetails.afterSave(async (instance, options) => {
   }
 });
 
-const authMiddleware = require("../middleware/auth");
+
 
 router.get("/cocktails", authMiddleware, async (req, res) => {
   try {
