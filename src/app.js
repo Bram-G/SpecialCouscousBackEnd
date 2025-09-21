@@ -8,7 +8,7 @@ const app = express();
 
 // Middleware configuration
 app.use(express.json());
-app.use(cookieParser()); // Add this before routes but after express.json()
+app.use(cookieParser());
 
 app.get('/setup-database', async (req, res) => {
   try {
@@ -34,28 +34,25 @@ app.get('/setup-database', async (req, res) => {
   }
 });
 
-
 app.use(cors({
   origin: [
-    'http://localhost:3000',           // Local development
-    'https://movie-monday-beta.vercel.app',  // Your Vercel URL
-    'https://movie-monday-rd5dji6cr-brams-projects-69a61965.vercel.app', // Current deployment
-    process.env.FRONTEND_URL           // Environment variable fallback
-  ].filter(Boolean), // Remove any undefined values
+    'http://localhost:3000',
+    'https://movie-monday-beta.vercel.app',
+    'https://movie-monday-rd5dji6cr-brams-projects-69a61965.vercel.app',
+    process.env.FRONTEND_URL
+  ].filter(Boolean),
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true,
   exposedHeaders: ['set-cookie']
 }));
 
-// Routes
-
-
+// Rate limiting
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 5, // Limit each IP to 5 requests per 15 minutes
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  standardHeaders: true,
+  legacyHeaders: false,
   message: 'Too many requests from this IP, please try again after 15 minutes'
 });
 
@@ -63,18 +60,19 @@ app.use('/auth/forgot-password', authLimiter);
 app.use('/auth/resend-verification', authLimiter);
 app.use('/auth/register', authLimiter);
 
+// Import routes
 const authRoutes = require('./routes/auth');
-app.use('/auth', authRoutes);
-
 const movieMondayRoutes = require('./routes/movieMonday');
 const groupsRouter = require('./routes/groups');
 const watchlistRoutes = require('./routes/watchlists');
+const commentRoutes = require('./routes/comments'); // NEW: Import comment routes
 
-
-// Route middleware
+// Mount routes
+app.use('/auth', authRoutes);
 app.use('/api/movie-monday', movieMondayRoutes);
 app.use('/api', groupsRouter);
 app.use('/api/watchlists', watchlistRoutes);
+app.use('/api/comments', commentRoutes); // NEW: Mount comment routes at /api/comments
 
 // Error handling middleware - should be after routes
 app.use((err, req, res, next) => {

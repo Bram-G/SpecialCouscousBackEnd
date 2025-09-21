@@ -420,6 +420,261 @@ const MovieCrew = sequelize.define(
     tableName: "MovieCrew",
   }
 );
+const CommentSection = sequelize.define("CommentSection", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  movieId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    unique: true, // Each movie can only have one comment section
+    validate: {
+      notEmpty: true,
+    },
+  },
+  totalComments: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+  },
+  isActive: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: true,
+    allowNull: false,
+  },
+}, {
+  tableName: "CommentSections",
+  timestamps: true,
+  indexes: [
+    {
+      unique: true,
+      fields: ['movieId'] // Fast lookup by movie ID
+    }
+  ]
+});
+
+// 2. Comment Model - Supports threaded/nested comments (Reddit-style)
+const Comment = sequelize.define("Comment", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  commentSectionId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "CommentSections",
+      key: "id",
+    },
+  },
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "Users",
+      key: "id",
+    },
+  },
+  parentCommentId: {
+    type: DataTypes.INTEGER,
+    allowNull: true, // null means it's a top-level comment
+    references: {
+      model: "Comments",
+      key: "id",
+    },
+  },
+  content: {
+    type: DataTypes.TEXT,
+    allowNull: false,
+    validate: {
+      notEmpty: true,
+      len: [10, 1000], // Minimum 10 chars, max 1000 chars (anti-spam)
+    },
+  },
+  voteScore: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+  },
+  upvotes: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+  },
+  downvotes: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+  },
+  replyCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+  },
+  depth: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+    validate: {
+      max: 5, // Maximum nesting depth of 5 levels
+    },
+  },
+  isDeleted: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
+  isEdited: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
+  editedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  isHidden: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
+}, {
+  tableName: "Comments",
+  timestamps: true,
+  indexes: [
+    {
+      fields: ['commentSectionId'] // Fast lookup by section
+    },
+    {
+      fields: ['userId'] // Fast lookup by user
+    },
+    {
+      fields: ['parentCommentId'] // Fast lookup for replies
+    },
+    {
+      fields: ['voteScore'] // Fast sorting by vote score
+    },
+    {
+      fields: ['createdAt'] // Fast sorting by time
+    },
+    {
+      fields: ['commentSectionId', 'parentCommentId'] // Composite for top-level comments
+    }
+  ]
+});
+
+// 3. CommentVote Model - Handles upvotes/downvotes
+const CommentVote = sequelize.define("CommentVote", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  commentId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "Comments",
+      key: "id",
+    },
+  },
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "Users",
+      key: "id",
+    },
+  },
+  voteType: {
+    type: DataTypes.ENUM('upvote', 'downvote'),
+    allowNull: false,
+  },
+}, {
+  tableName: "CommentVotes",
+  timestamps: true,
+  updatedAt: false, // We don't need to track vote updates, just creation
+  indexes: [
+    {
+      unique: true,
+      fields: ['commentId', 'userId'], // Prevent duplicate votes from same user
+      name: 'unique_user_comment_vote'
+    },
+    {
+      fields: ['commentId'] // Fast lookup for vote counts
+    },
+    {
+      fields: ['userId'] // Fast lookup for user's votes
+    }
+  ]
+});
+
+// 4. CommentReport Model - For moderation (future-proofing)
+const CommentReport = sequelize.define("CommentReport", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  commentId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "Comments",
+      key: "id",
+    },
+  },
+  reportedByUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "Users",
+      key: "id",
+    },
+  },
+  reason: {
+    type: DataTypes.ENUM('spam', 'harassment', 'inappropriate', 'other'),
+    allowNull: false,
+  },
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  isResolved: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
+  resolvedByUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: true,
+    references: {
+      model: "Users",
+      key: "id",
+    },
+  },
+  resolvedAt: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+}, {
+  tableName: "CommentReports",
+  timestamps: true,
+  indexes: [
+    {
+      fields: ['commentId']
+    },
+    {
+      fields: ['reportedByUserId']
+    },
+    {
+      fields: ['isResolved']
+    }
+  ]
+});
 
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
@@ -508,6 +763,83 @@ User.hasMany(WatchlistLike, {
 WatchlistLike.belongsTo(User, {
   foreignKey: 'userId'
 });
+// CommentSection associations
+CommentSection.hasMany(Comment, {
+  foreignKey: "commentSectionId",
+  as: "comments",
+  onDelete: "CASCADE",
+});
+Comment.belongsTo(CommentSection, {
+  foreignKey: "commentSectionId",
+});
+
+// User-Comment relationship (one-to-many)
+User.hasMany(Comment, {
+  foreignKey: "userId",
+  as: "comments",
+});
+Comment.belongsTo(User, {
+  foreignKey: "userId",
+  as: "author",
+});
+
+// Self-referencing relationship for threaded comments
+Comment.hasMany(Comment, {
+  foreignKey: "parentCommentId",
+  as: "replies",
+});
+Comment.belongsTo(Comment, {
+  foreignKey: "parentCommentId",
+  as: "parentComment",
+});
+
+// Comment-CommentVote relationship (one-to-many)
+Comment.hasMany(CommentVote, {
+  foreignKey: "commentId",
+  as: "votes",
+  onDelete: "CASCADE",
+});
+CommentVote.belongsTo(Comment, {
+  foreignKey: "commentId",
+});
+
+// User-CommentVote relationship (one-to-many)
+User.hasMany(CommentVote, {
+  foreignKey: "userId",
+  as: "commentVotes",
+});
+CommentVote.belongsTo(User, {
+  foreignKey: "userId",
+  as: "voter",
+});
+
+// Comment-CommentReport relationship (one-to-many)
+Comment.hasMany(CommentReport, {
+  foreignKey: "commentId",
+  as: "reports",
+});
+CommentReport.belongsTo(Comment, {
+  foreignKey: "commentId",
+});
+
+// User-CommentReport relationships
+User.hasMany(CommentReport, {
+  foreignKey: "reportedByUserId",
+  as: "reportsMade",
+});
+CommentReport.belongsTo(User, {
+  foreignKey: "reportedByUserId",
+  as: "reporter",
+});
+
+User.hasMany(CommentReport, {
+  foreignKey: "resolvedByUserId",
+  as: "reportsResolved",
+});
+CommentReport.belongsTo(User, {
+  foreignKey: "resolvedByUserId",
+  as: "resolver",
+});
 
 module.exports = {
   MovieMonday,
@@ -522,5 +854,9 @@ module.exports = {
   WatchlistCategory,
   WatchlistItem,
   WatchlistLike,
-  Statistic
+  Statistic,
+  CommentSection,
+  Comment,
+  CommentVote,
+  CommentReport,
 };
