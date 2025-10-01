@@ -9,7 +9,9 @@ const {
   MovieSelection, 
   MovieMondayEventDetails,
   MovieCast,
-  MovieCrew, 
+  MovieCrew,
+  WatchlistCategory,
+  WatchlistItem,
   sequelize 
 } = require('../models');
 require('dotenv').config();
@@ -119,6 +121,86 @@ async function fetchMovieDetails(tmdbId) {
   }
 }
 
+// Helper function to create sample watchlists for Bram
+async function createSampleWatchlists(bramUser) {
+  console.log('\nCreating sample watchlists for Bram...');
+  
+  try {
+    // Sample watchlist data
+    const watchlistData = [
+      {
+        name: 'Classic Sci-Fi Collection',
+        description: 'My favorite science fiction films of all time',
+        isPublic: true,
+        movies: [
+          { tmdbId: 603, title: 'The Matrix' },
+          { tmdbId: 78, title: 'Blade Runner' },
+          { tmdbId: 62, title: '2001: A Space Odyssey' },
+          { tmdbId: 271110, title: 'Arrival' },
+          { tmdbId: 157336, title: 'Interstellar' }
+        ]
+      },
+      {
+        name: 'Want to Watch',
+        description: 'Movies I need to see soon',
+        isPublic: false,
+        movies: [
+          { tmdbId: 680, title: 'Pulp Fiction' },
+          { tmdbId: 155, title: 'The Dark Knight' },
+          { tmdbId: 13, title: 'Forrest Gump' },
+          { tmdbId: 550, title: 'Fight Club' }
+        ]
+      },
+      {
+        name: 'Tarantino Marathon',
+        description: 'Complete Quentin Tarantino filmography',
+        isPublic: true,
+        movies: [
+          { tmdbId: 680, title: 'Pulp Fiction' },
+          { tmdbId: 24, title: 'Kill Bill: Vol. 1' },
+          { tmdbId: 393, title: 'Kill Bill: Vol. 2' },
+          { tmdbId: 16869, title: 'Inglourious Basterds' },
+          { tmdbId: 106646, title: 'Django Unchained' }
+        ]
+      }
+    ];
+
+    for (const watchlistInfo of watchlistData) {
+      // Create the watchlist category
+      const category = await WatchlistCategory.create({
+        name: watchlistInfo.name,
+        description: watchlistInfo.description,
+        userId: bramUser.id,
+        isPublic: watchlistInfo.isPublic,
+        slug: watchlistInfo.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+      });
+
+      console.log(`  Created watchlist: ${watchlistInfo.name}`);
+
+      // Add movies to the watchlist
+      let sortOrder = 1;
+      for (const movie of watchlistInfo.movies) {
+        const movieDetails = await fetchMovieDetails(movie.tmdbId);
+        
+        if (movieDetails) {
+          await WatchlistItem.create({
+            categoryId: category.id,
+            tmdbMovieId: movieDetails.tmdbMovieId,
+            title: movieDetails.title,
+            posterPath: movieDetails.posterPath,
+            sortOrder: sortOrder++
+          });
+          console.log(`    Added movie: ${movieDetails.title}`);
+        }
+      }
+    }
+
+    console.log('✓ Sample watchlists created successfully!\n');
+  } catch (error) {
+    console.error('Error creating sample watchlists:', error);
+  }
+}
+
 // Process CSV rows
 async function processCSVData(csvData) {
   // Ensure schema info is available
@@ -138,28 +220,59 @@ async function processCSVData(csvData) {
     Syd: await getOrCreateUser('Syd', 'syd@test.com', 'password'),
     Tim: await getOrCreateUser('Tim', 'tim@test.com', 'password'),
     Ellie: await getOrCreateUser('Ellie', 'ellie@test.com', 'password'),
-    Austin: await getOrCreateUser('Austin', 'Austin@test.com', 'password' ),
-    Kyle: await getOrCreateUser('Kyle', 'Kyle@test.com', 'password' )
+    Austin: await getOrCreateUser('Austin', 'Austin@test.com', 'password'),
+    Kyle: await getOrCreateUser('Kyle', 'Kyle@test.com', 'password')
   };
 
-  // Create the Movie Monday group
+  // Create sample watchlists for Bram
+  await createSampleWatchlists(users.Bram);
+
+  // Create the Movie Monday group with public settings
   let group = await Group.findOne({ where: { name: 'Movie Monday' } });
   
   if (!group) {
-    console.log('Creating Movie Monday group');
+    console.log('Creating Movie Monday group...');
     group = await Group.create({
       name: 'Movie Monday',
-      createdById: users.Bram.id
+      createdById: users.Bram.id,
+      isPublic: true, // Make the group public
+      slug: 'movie-monday',
+      description: 'Our weekly tradition of watching movies together. Every Monday we pick new films, enjoy themed drinks and food, and create lasting memories.'
     });
     
     // Add all users to the group
     await Promise.all(Object.values(users).map(user => 
       group.addUser(user.id)
     ));
+    
+    console.log('✓ Group created and made public!\n');
+  } else {
+    // Update existing group to be public if it isn't already
+    if (!group.isPublic) {
+      group.isPublic = true;
+      group.slug = 'movie-monday';
+      group.description = 'Our weekly tradition of watching movies together. Every Monday we pick new films, enjoy themed drinks and food, and create lasting memories.';
+      await group.save();
+      console.log('✓ Updated group to be public!\n');
+    }
   }
 
+  // Sample week themes to add variety
+  const weekThemes = [
+    '80s Action Night',
+    'Rom-Com Marathon',
+    'Sci-Fi Spectacular',
+    'Horror Movie Night',
+    'Classic Cinema',
+    'Oscar Winners',
+    'Director\'s Spotlight',
+    'Summer Blockbusters',
+    'Indie Film Night',
+    'Holiday Special'
+  ];
+
   // Process each row from the CSV
-  for (const row of parsedData) {
+  for (const [index, row] of parsedData.entries()) {
     try {
       const formattedDate = formatDate(row.Date);
       
@@ -168,6 +281,13 @@ async function processCSVData(csvData) {
       const pickerUserId = users[pickerName].id;
       
       console.log(`Processing MovieMonday for ${formattedDate}, picker: ${pickerName}`);
+      
+      // Randomly assign a theme to some weeks (about 30% of them)
+      const shouldHaveTheme = Math.random() < 0.3;
+      const weekTheme = shouldHaveTheme ? weekThemes[Math.floor(Math.random() * weekThemes.length)] : null;
+      
+      // Make most Movie Mondays public (about 80%)
+      const isPublic = Math.random() < 0.8;
       
       // Create or update the MovieMonday
       const [movieMonday, created] = await MovieMonday.findOrCreate({
@@ -178,17 +298,26 @@ async function processCSVData(csvData) {
         defaults: {
           pickerUserId,
           GroupId: group.id,
-          status: 'completed' // Assuming all imported data are completed events
+          status: 'completed',
+          isPublic: isPublic,
+          slug: `movie-monday-${formattedDate}`,
+          weekTheme: weekTheme
         }
       });
       
       if (!created) {
-        // Update picker if needed
-        if (movieMonday.pickerUserId !== pickerUserId) {
-          movieMonday.pickerUserId = pickerUserId;
-          await movieMonday.save();
-        }
+        // Update existing movie monday
+        movieMonday.pickerUserId = pickerUserId;
+        movieMonday.isPublic = isPublic;
+        movieMonday.slug = `movie-monday-${formattedDate}`;
+        movieMonday.weekTheme = weekTheme;
+        await movieMonday.save();
       }
+      
+      if (weekTheme) {
+        console.log(`  Theme: ${weekTheme}`);
+      }
+      console.log(`  Public: ${isPublic ? 'Yes' : 'No'}`);
 
       // Create movie selections with better handling of blank/problematic values
       const movieIds = [
@@ -295,13 +424,12 @@ async function processCSVData(csvData) {
               }
             }
             
-            console.log(`Added ${topCast.length} cast and ${uniqueCrew.length} crew members to movie "${movieDetails.title}"`);
+            console.log(`  Added ${topCast.length} cast and ${uniqueCrew.length} crew members to movie "${movieDetails.title}"`);
           }
         }
       }
       
       // Process event details (cocktails, dinner, dessert)
-      // Properly handle empty or blank cells - ensure we don't have empty strings or "[ ]" values
       const cocktails = row.Cocktail && row.Cocktail.trim() !== "" && row.Cocktail !== "[ ]" 
         ? row.Cocktail.split(',').map(c => c.trim()).filter(Boolean) 
         : [];
@@ -318,16 +446,8 @@ async function processCSVData(csvData) {
         // Only create event details if we have actual data
         const hasData = cocktails.length > 0 || meals.length > 0 || desserts.length > 0;
         
-        // Log the values for debugging
-        console.log(`Event details for ${formattedDate}:`, {
-          cocktails: cocktails.length > 0 ? cocktails : "None",
-          meals: meals.length > 0 ? meals : "None",
-          desserts: desserts.length > 0 ? desserts : "None",
-          hasData
-        });
-        
         if (hasData) {
-          // Create or update event details using a direct approach
+          // Create or update event details
           const [eventDetails, eventDetailsCreated] = await MovieMondayEventDetails.findOrCreate({
             where: { 
               movieMondayId: movieMonday.id 
@@ -350,39 +470,10 @@ async function processCSVData(csvData) {
             });
           }
           
-          console.log(`Event details ${eventDetailsCreated ? 'created' : 'updated'} for date ${formattedDate}`);
-        } else {
-          console.log(`No event details to create for date ${formattedDate}`);
+          console.log(`  Event details ${eventDetailsCreated ? 'created' : 'updated'}`);
         }
       } catch (eventError) {
-        console.error(`Error with event details for date ${formattedDate}:`, eventError.message);
-        // Try a simpler approach if the first one fails
-        try {
-          console.log('Attempting simplified event details creation using raw SQL...');
-          await sequelize.query(
-            `INSERT INTO "MovieMondayEventDetails" 
-             ("movieMondayId", "cocktails", "meals", "desserts", "createdAt", "updatedAt") 
-             VALUES (?, ?, ?, ?, NOW(), NOW()) 
-             ON CONFLICT ("movieMondayId") 
-             DO UPDATE SET 
-               "cocktails" = EXCLUDED."cocktails",
-               "meals" = EXCLUDED."meals", 
-               "desserts" = EXCLUDED."desserts",
-               "updatedAt" = NOW();`,
-            { 
-              replacements: [
-                movieMonday.id, 
-                JSON.stringify(cocktails), 
-                JSON.stringify(meals), 
-                JSON.stringify(desserts)
-              ],
-              type: sequelize.QueryTypes.INSERT
-            }
-          );
-          console.log('Successfully used raw SQL for event details');
-        } catch (fallbackError) {
-          console.error('Simplified event details creation also failed:', fallbackError.message);
-        }
+        console.error(`Error with event details:`, eventError.message);
       }
     } catch (error) {
       console.error(`Error processing row for date ${row.Date}:`, error);
@@ -395,6 +486,7 @@ async function processCSVData(csvData) {
 async function importMovieMondayData() {
   try {
     console.log('Starting Movie Monday data import...');
+    console.log('=====================================\n');
     
     if (!fs.existsSync(CSV_FILE_PATH)) {
       console.error(`CSV file not found at path: ${CSV_FILE_PATH}`);
@@ -403,11 +495,11 @@ async function importMovieMondayData() {
     
     // Check database schema first
     const schemaInfo = await checkDatabaseSchema();
-    global.schemaInfo = schemaInfo; // Make schema info available globally
+    global.schemaInfo = schemaInfo;
     
     console.log('Schema check result:');
     console.log(`- genres column exists: ${schemaInfo.hasGenres}`);
-    console.log(`- releaseYear column exists: ${schemaInfo.hasReleaseYear}`);
+    console.log(`- releaseYear column exists: ${schemaInfo.hasReleaseYear}\n`);
     
     // Read CSV file
     const csvData = fs.readFileSync(CSV_FILE_PATH, 'utf-8');
@@ -415,7 +507,12 @@ async function importMovieMondayData() {
     // Process the data
     await processCSVData(csvData);
     
-    console.log('Data import completed successfully!');
+    console.log('\n=====================================');
+    console.log('✓ Data import completed successfully!');
+    console.log('✓ Group is now public');
+    console.log('✓ Most Movie Mondays are public');
+    console.log('✓ Sample watchlists created for Bram');
+    console.log('=====================================\n');
   } catch (error) {
     console.error('Error importing Movie Monday data:', error);
   } finally {

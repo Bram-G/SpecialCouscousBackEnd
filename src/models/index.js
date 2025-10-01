@@ -70,15 +70,8 @@ const Group = sequelize.define("Group", {
   createdById: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    references: {
-      model: "Users",
-      key: "id",
-    },
   },
-  createdAt: {
-    type: DataTypes.DATE,
-    defaultValue: DataTypes.NOW,
-  },
+  // ADD THESE NEW FIELDS:
   isPublic: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
@@ -97,7 +90,11 @@ const Group = sequelize.define("Group", {
     type: DataTypes.TEXT,
     allowNull: true,
   },
+}, {
+  tableName: "Groups",
+  timestamps: true,
 });
+
 
 const Movie = sequelize.define("Movie", {
   id: {
@@ -314,62 +311,53 @@ const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
   },
 });
 
-const MovieMonday = sequelize.define(
-  "MovieMonday",
-  {
-    id: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    date: {
-      type: DataTypes.DATEONLY, // Changed to match migration
-      allowNull: false,
-    },
-    pickerUserId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: "Users",
-        key: "id",
-      },
-    },
-    GroupId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: "Groups",
-        key: "id",
-      },
-    },
-    status: {
-      type: DataTypes.ENUM("pending", "in-progress", "completed"),
-      defaultValue: "pending",
-    },
-    isPublic: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false,
-      allowNull: false,
-    },
-    slug: {
-      type: DataTypes.STRING(150),
-      allowNull: true,
-      unique: true,
-    },
-    weekTheme: {
-      type: DataTypes.STRING(255),
-      allowNull: true,
-    },
-    likesCount: {
-      type: DataTypes.INTEGER,
-      defaultValue: 0,
-      allowNull: false,
-    },
+const MovieMonday = sequelize.define("MovieMonday", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
   },
-  {
-    tableName: "MovieMondays",
-  }
-);
+  date: {
+    type: DataTypes.DATEONLY,
+    allowNull: false,
+  },
+  pickerUserId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+  },
+  GroupId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+  },
+  status: {
+    type: DataTypes.ENUM("pending", "in-progress", "completed"),
+    defaultValue: "pending",
+  },
+  // ADD THESE NEW FIELDS:
+  isPublic: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
+  slug: {
+    type: DataTypes.STRING(150),
+    allowNull: true,
+    unique: true,
+  },
+  weekTheme: {
+    type: DataTypes.STRING(255),
+    allowNull: true,
+  },
+  likesCount: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+    allowNull: false,
+  },
+}, {
+  tableName: "MovieMondays",
+  timestamps: true,
+});
+
 
 const MovieSelection = sequelize.define(
   "MovieSelection",
@@ -780,44 +768,40 @@ const CommentReport = sequelize.define(
     ],
   }
 );
-const MovieMondayLike = sequelize.define(
-  "MovieMondayLike",
-  {
-    id: {
-      type: DataTypes.INTEGER,
-      primaryKey: true,
-      autoIncrement: true,
-    },
-    movieMondayId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: "MovieMondays",
-        key: "id",
-      },
-    },
-    userId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: "Users",
-        key: "id",
-      },
+const MovieMondayLike = sequelize.define("MovieMondayLike", {
+  id: {
+    type: DataTypes.INTEGER,
+    primaryKey: true,
+    autoIncrement: true,
+  },
+  movieMondayId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "MovieMondays",
+      key: "id",
     },
   },
-  {
-    tableName: "MovieMondayLikes",
-    timestamps: true,
-    updatedAt: false,
-    indexes: [
-      {
-        unique: true,
-        fields: ["movieMondayId", "userId"],
-        name: "unique_user_moviemonday_like",
-      },
-    ],
-  }
-);
+  userId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: "Users",
+      key: "id",
+    },
+  },
+}, {
+  tableName: "MovieMondayLikes",
+  timestamps: true,
+  updatedAt: false,
+  indexes: [
+    {
+      unique: true,
+      fields: ['movieMondayId', 'userId'],
+      name: 'unique_user_moviemonday_like'
+    }
+  ]
+});
 
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
@@ -983,10 +967,10 @@ CommentReport.belongsTo(User, {
   foreignKey: "resolvedByUserId",
   as: "resolver",
 });
-MovieMonday.hasMany(MovieMondayLike, { foreignKey: "movieMondayId" });
-MovieMondayLike.belongsTo(MovieMonday, { foreignKey: "movieMondayId" });
-User.hasMany(MovieMondayLike, { foreignKey: "userId" });
-MovieMondayLike.belongsTo(User, { foreignKey: "userId" });
+MovieMonday.hasMany(MovieMondayLike, { foreignKey: 'movieMondayId' });
+MovieMondayLike.belongsTo(MovieMonday, { foreignKey: 'movieMondayId' });
+User.hasMany(MovieMondayLike, { foreignKey: 'userId' });
+MovieMondayLike.belongsTo(User, { foreignKey: 'userId' });
 
 module.exports = {
   MovieMonday,
