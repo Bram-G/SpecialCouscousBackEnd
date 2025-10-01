@@ -1,10 +1,10 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("../config/database");
-const statisticsModel = require('./statistics');
+const statisticsModel = require("./statistics");
 const Statistic = statisticsModel(sequelize);
-const watchlistCategoryModel = require('./watchlistCategory');
-const watchlistItemModel = require('./watchlistItem');
-const watchlistLikeModel = require('./watchlistLike');
+const watchlistCategoryModel = require("./watchlistCategory");
+const watchlistItemModel = require("./watchlistItem");
+const watchlistLikeModel = require("./watchlistLike");
 const WatchlistCategory = watchlistCategoryModel(sequelize);
 const WatchlistItem = watchlistItemModel(sequelize);
 const WatchlistLike = watchlistLikeModel(sequelize);
@@ -37,24 +37,24 @@ const User = sequelize.define("User", {
   },
   isVerified: {
     type: DataTypes.BOOLEAN,
-    defaultValue: false
+    defaultValue: false,
   },
   verificationToken: {
     type: DataTypes.STRING,
-    allowNull: true
+    allowNull: true,
   },
   verificationTokenExpires: {
     type: DataTypes.DATE,
-    allowNull: true
+    allowNull: true,
   },
   passwordResetToken: {
     type: DataTypes.STRING,
-    allowNull: true
+    allowNull: true,
   },
   passwordResetExpires: {
     type: DataTypes.DATE,
-    allowNull: true
-  }
+    allowNull: true,
+  },
 });
 
 const Group = sequelize.define("Group", {
@@ -79,6 +79,24 @@ const Group = sequelize.define("Group", {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
   },
+  isPublic: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false,
+    allowNull: false,
+  },
+  slug: {
+    type: DataTypes.STRING(100),
+    allowNull: true,
+    unique: true,
+  },
+  description: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  coverImagePath: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
 });
 
 const Movie = sequelize.define("Movie", {
@@ -99,52 +117,58 @@ const Movie = sequelize.define("Movie", {
   description: DataTypes.TEXT,
 });
 
-const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
+const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
   id: {
     type: DataTypes.INTEGER,
     primaryKey: true,
-    autoIncrement: true
+    autoIncrement: true,
   },
   movieMondayId: {
     type: DataTypes.INTEGER,
     allowNull: false,
     references: {
-      model: 'MovieMondays',
-      key: 'id'
-    }
+      model: "MovieMondays",
+      key: "id",
+    },
   },
   cocktails: {
     type: DataTypes.TEXT,
     allowNull: true,
     get() {
-      const rawValue = this.getDataValue('cocktails');
+      const rawValue = this.getDataValue("cocktails");
       if (!rawValue) return [];
-      
+
       try {
         // Parse JSON string to array
         const parsed = JSON.parse(rawValue);
-        
+
         // Make sure it's an array and filter out any problematic values
         if (Array.isArray(parsed)) {
-          return parsed.filter(item => 
-            item && 
-            typeof item === 'string' && 
-            item.trim() !== '' &&
-            item !== '[]' &&
-            item !== '[ ]'
+          return parsed.filter(
+            (item) =>
+              item &&
+              typeof item === "string" &&
+              item.trim() !== "" &&
+              item !== "[]" &&
+              item !== "[ ]"
           );
         }
-        
+
         // If not an array but valid content, return as single-item array
-        if (parsed && typeof parsed === 'string' && parsed.trim()) {
+        if (parsed && typeof parsed === "string" && parsed.trim()) {
           return [parsed.trim()];
         }
-        
+
         return [];
       } catch (e) {
         // If not valid JSON, treat as single string if it has content
-        if (rawValue && typeof rawValue === 'string' && rawValue.trim() !== '' && 
-            rawValue !== '[]' && rawValue !== '[ ]') {
+        if (
+          rawValue &&
+          typeof rawValue === "string" &&
+          rawValue.trim() !== "" &&
+          rawValue !== "[]" &&
+          rawValue !== "[ ]"
+        ) {
           return [rawValue.trim()];
         }
         return [];
@@ -153,45 +177,58 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
     set(val) {
       // Normalize the input
       let valueToStore = [];
-      
+
       if (Array.isArray(val)) {
         // Filter out empty/null values and normalize strings
-        valueToStore = val.filter(v => v && typeof v === 'string' && v.trim())
-          .map(v => v.trim());
-      } else if (val && typeof val === 'string' && val.trim() && val !== '[]' && val !== '[ ]') {
+        valueToStore = val
+          .filter((v) => v && typeof v === "string" && v.trim())
+          .map((v) => v.trim());
+      } else if (
+        val &&
+        typeof val === "string" &&
+        val.trim() &&
+        val !== "[]" &&
+        val !== "[ ]"
+      ) {
         valueToStore = [val.trim()];
       }
-      
-      this.setDataValue('cocktails', JSON.stringify(valueToStore));
-    }
+
+      this.setDataValue("cocktails", JSON.stringify(valueToStore));
+    },
   },
-  
+
   // Same pattern for meals
   meals: {
     type: DataTypes.TEXT,
     allowNull: true,
     get() {
-      const rawValue = this.getDataValue('meals');
+      const rawValue = this.getDataValue("meals");
       if (!rawValue) return [];
-      
+
       try {
         const parsed = JSON.parse(rawValue);
         if (Array.isArray(parsed)) {
-          return parsed.filter(item => 
-            item && 
-            typeof item === 'string' && 
-            item.trim() !== '' &&
-            item !== '[]' &&
-            item !== '[ ]'
+          return parsed.filter(
+            (item) =>
+              item &&
+              typeof item === "string" &&
+              item.trim() !== "" &&
+              item !== "[]" &&
+              item !== "[ ]"
           );
         }
-        if (parsed && typeof parsed === 'string' && parsed.trim()) {
+        if (parsed && typeof parsed === "string" && parsed.trim()) {
           return [parsed.trim()];
         }
         return [];
       } catch (e) {
-        if (rawValue && typeof rawValue === 'string' && rawValue.trim() !== '' && 
-            rawValue !== '[]' && rawValue !== '[ ]') {
+        if (
+          rawValue &&
+          typeof rawValue === "string" &&
+          rawValue.trim() !== "" &&
+          rawValue !== "[]" &&
+          rawValue !== "[ ]"
+        ) {
           return [rawValue.trim()];
         }
         return [];
@@ -199,44 +236,57 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
     },
     set(val) {
       let valueToStore = [];
-      
+
       if (Array.isArray(val)) {
-        valueToStore = val.filter(v => v && typeof v === 'string' && v.trim())
-          .map(v => v.trim());
-      } else if (val && typeof val === 'string' && val.trim() && val !== '[]' && val !== '[ ]') {
+        valueToStore = val
+          .filter((v) => v && typeof v === "string" && v.trim())
+          .map((v) => v.trim());
+      } else if (
+        val &&
+        typeof val === "string" &&
+        val.trim() &&
+        val !== "[]" &&
+        val !== "[ ]"
+      ) {
         valueToStore = [val.trim()];
       }
-      
-      this.setDataValue('meals', JSON.stringify(valueToStore));
-    }
+
+      this.setDataValue("meals", JSON.stringify(valueToStore));
+    },
   },
-  
+
   // Same pattern for desserts
   desserts: {
     type: DataTypes.TEXT,
     allowNull: true,
     get() {
-      const rawValue = this.getDataValue('desserts');
+      const rawValue = this.getDataValue("desserts");
       if (!rawValue) return [];
-      
+
       try {
         const parsed = JSON.parse(rawValue);
         if (Array.isArray(parsed)) {
-          return parsed.filter(item => 
-            item && 
-            typeof item === 'string' && 
-            item.trim() !== '' &&
-            item !== '[]' &&
-            item !== '[ ]'
+          return parsed.filter(
+            (item) =>
+              item &&
+              typeof item === "string" &&
+              item.trim() !== "" &&
+              item !== "[]" &&
+              item !== "[ ]"
           );
         }
-        if (parsed && typeof parsed === 'string' && parsed.trim()) {
+        if (parsed && typeof parsed === "string" && parsed.trim()) {
           return [parsed.trim()];
         }
         return [];
       } catch (e) {
-        if (rawValue && typeof rawValue === 'string' && rawValue.trim() !== '' && 
-            rawValue !== '[]' && rawValue !== '[ ]') {
+        if (
+          rawValue &&
+          typeof rawValue === "string" &&
+          rawValue.trim() !== "" &&
+          rawValue !== "[]" &&
+          rawValue !== "[ ]"
+        ) {
           return [rawValue.trim()];
         }
         return [];
@@ -244,17 +294,24 @@ const MovieMondayEventDetails = sequelize.define('MovieMondayEventDetails', {
     },
     set(val) {
       let valueToStore = [];
-      
+
       if (Array.isArray(val)) {
-        valueToStore = val.filter(v => v && typeof v === 'string' && v.trim())
-          .map(v => v.trim());
-      } else if (val && typeof val === 'string' && val.trim() && val !== '[]' && val !== '[ ]') {
+        valueToStore = val
+          .filter((v) => v && typeof v === "string" && v.trim())
+          .map((v) => v.trim());
+      } else if (
+        val &&
+        typeof val === "string" &&
+        val.trim() &&
+        val !== "[]" &&
+        val !== "[ ]"
+      ) {
         valueToStore = [val.trim()];
       }
-      
-      this.setDataValue('desserts', JSON.stringify(valueToStore));
-    }
-  }
+
+      this.setDataValue("desserts", JSON.stringify(valueToStore));
+    },
+  },
 });
 
 const MovieMonday = sequelize.define(
@@ -288,6 +345,25 @@ const MovieMonday = sequelize.define(
     status: {
       type: DataTypes.ENUM("pending", "in-progress", "completed"),
       defaultValue: "pending",
+    },
+    isPublic: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    slug: {
+      type: DataTypes.STRING(150),
+      allowNull: true,
+      unique: true,
+    },
+    weekTheme: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    likesCount: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
     },
   },
   {
@@ -420,274 +496,328 @@ const MovieCrew = sequelize.define(
     tableName: "MovieCrew",
   }
 );
-const CommentSection = sequelize.define("CommentSection", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  contentType: {
-    type: DataTypes.ENUM('movie', 'watchlist', 'moviemonday'),
-    allowNull: false,
-    validate: {
-      isIn: [['movie', 'watchlist', 'moviemonday']]
-    }
-  },
-  contentId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    validate: {
-      notEmpty: true,
+const CommentSection = sequelize.define(
+  "CommentSection",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    contentType: {
+      type: DataTypes.ENUM("movie", "watchlist", "moviemonday"),
+      allowNull: false,
+      validate: {
+        isIn: [["movie", "watchlist", "moviemonday"]],
+      },
+    },
+    contentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      validate: {
+        notEmpty: true,
+      },
+    },
+    totalComments: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: true,
+      allowNull: false,
     },
   },
-  totalComments: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-  },
-  isActive: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: true,
-    allowNull: false,
-  },
-}, {
-  tableName: "CommentSections",
-  timestamps: true,
-  indexes: [
-    {
-      unique: true,
-      fields: ['contentType', 'contentId'], // Unique combination of content type and ID
-      name: 'unique_content_comment_section'
-    },
-    {
-      fields: ['contentType'] // Fast filtering by content type
-    },
-    {
-      fields: ['contentId'] // Fast lookup by content ID
-    }
-  ]
-});
+  {
+    tableName: "CommentSections",
+    timestamps: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ["contentType", "contentId"], // Unique combination of content type and ID
+        name: "unique_content_comment_section",
+      },
+      {
+        fields: ["contentType"], // Fast filtering by content type
+      },
+      {
+        fields: ["contentId"], // Fast lookup by content ID
+      },
+    ],
+  }
+);
 
 // 2. Comment Model - Supports threaded/nested comments (Reddit-style)
-const Comment = sequelize.define("Comment", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  commentSectionId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "CommentSections",
-      key: "id",
+const Comment = sequelize.define(
+  "Comment",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    commentSectionId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "CommentSections",
+        key: "id",
+      },
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
+    },
+    parentCommentId: {
+      type: DataTypes.INTEGER,
+      allowNull: true, // null means it's a top-level comment
+      references: {
+        model: "Comments",
+        key: "id",
+      },
+    },
+    content: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      validate: {
+        notEmpty: true,
+        len: [10, 1000], // Minimum 10 chars, max 1000 chars (anti-spam)
+      },
+    },
+    voteScore: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+    },
+    upvotes: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+    },
+    downvotes: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+    },
+    replyCount: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+    },
+    depth: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+      validate: {
+        max: 5, // Maximum nesting depth of 5 levels
+      },
+    },
+    isDeleted: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    isEdited: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    editedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    isHidden: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
     },
   },
-  userId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "Users",
-      key: "id",
-    },
-  },
-  parentCommentId: {
-    type: DataTypes.INTEGER,
-    allowNull: true, // null means it's a top-level comment
-    references: {
-      model: "Comments",
-      key: "id",
-    },
-  },
-  content: {
-    type: DataTypes.TEXT,
-    allowNull: false,
-    validate: {
-      notEmpty: true,
-      len: [10, 1000], // Minimum 10 chars, max 1000 chars (anti-spam)
-    },
-  },
-  voteScore: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-  },
-  upvotes: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-  },
-  downvotes: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-  },
-  replyCount: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-  },
-  depth: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-    validate: {
-      max: 5, // Maximum nesting depth of 5 levels
-    },
-  },
-  isDeleted: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: false,
-  },
-  isEdited: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: false,
-  },
-  editedAt: {
-    type: DataTypes.DATE,
-    allowNull: true,
-  },
-  isHidden: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: false,
-  },
-}, {
-  tableName: "Comments",
-  timestamps: true,
-  indexes: [
-    {
-      fields: ['commentSectionId'] // Fast lookup by section
-    },
-    {
-      fields: ['userId'] // Fast lookup by user
-    },
-    {
-      fields: ['parentCommentId'] // Fast lookup for replies
-    },
-    {
-      fields: ['voteScore'] // Fast sorting by vote score
-    },
-    {
-      fields: ['createdAt'] // Fast sorting by time
-    },
-    {
-      fields: ['commentSectionId', 'parentCommentId'] // Composite for top-level comments
-    }
-  ]
-});
+  {
+    tableName: "Comments",
+    timestamps: true,
+    indexes: [
+      {
+        fields: ["commentSectionId"], // Fast lookup by section
+      },
+      {
+        fields: ["userId"], // Fast lookup by user
+      },
+      {
+        fields: ["parentCommentId"], // Fast lookup for replies
+      },
+      {
+        fields: ["voteScore"], // Fast sorting by vote score
+      },
+      {
+        fields: ["createdAt"], // Fast sorting by time
+      },
+      {
+        fields: ["commentSectionId", "parentCommentId"], // Composite for top-level comments
+      },
+    ],
+  }
+);
 
 // 3. CommentVote Model - Handles upvotes/downvotes
-const CommentVote = sequelize.define("CommentVote", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  commentId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "Comments",
-      key: "id",
+const CommentVote = sequelize.define(
+  "CommentVote",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    commentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Comments",
+        key: "id",
+      },
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
+    },
+    voteType: {
+      type: DataTypes.ENUM("upvote", "downvote"),
+      allowNull: false,
     },
   },
-  userId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "Users",
-      key: "id",
-    },
-  },
-  voteType: {
-    type: DataTypes.ENUM('upvote', 'downvote'),
-    allowNull: false,
-  },
-}, {
-  tableName: "CommentVotes",
-  timestamps: true,
-  updatedAt: false, // We don't need to track vote updates, just creation
-  indexes: [
-    {
-      unique: true,
-      fields: ['commentId', 'userId'], // Prevent duplicate votes from same user
-      name: 'unique_user_comment_vote'
-    },
-    {
-      fields: ['commentId'] // Fast lookup for vote counts
-    },
-    {
-      fields: ['userId'] // Fast lookup for user's votes
-    }
-  ]
-});
+  {
+    tableName: "CommentVotes",
+    timestamps: true,
+    updatedAt: false, // We don't need to track vote updates, just creation
+    indexes: [
+      {
+        unique: true,
+        fields: ["commentId", "userId"], // Prevent duplicate votes from same user
+        name: "unique_user_comment_vote",
+      },
+      {
+        fields: ["commentId"], // Fast lookup for vote counts
+      },
+      {
+        fields: ["userId"], // Fast lookup for user's votes
+      },
+    ],
+  }
+);
 
 // 4. CommentReport Model - For moderation (future-proofing)
-const CommentReport = sequelize.define("CommentReport", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  commentId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "Comments",
-      key: "id",
+const CommentReport = sequelize.define(
+  "CommentReport",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    commentId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Comments",
+        key: "id",
+      },
+    },
+    reportedByUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
+    },
+    reason: {
+      type: DataTypes.ENUM("spam", "harassment", "inappropriate", "other"),
+      allowNull: false,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    isResolved: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    resolvedByUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: "Users",
+        key: "id",
+      },
+    },
+    resolvedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
     },
   },
-  reportedByUserId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "Users",
-      key: "id",
+  {
+    tableName: "CommentReports",
+    timestamps: true,
+    indexes: [
+      {
+        fields: ["commentId"],
+      },
+      {
+        fields: ["reportedByUserId"],
+      },
+      {
+        fields: ["isResolved"],
+      },
+    ],
+  }
+);
+const MovieMondayLike = sequelize.define(
+  "MovieMondayLike",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    movieMondayId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "MovieMondays",
+        key: "id",
+      },
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
     },
   },
-  reason: {
-    type: DataTypes.ENUM('spam', 'harassment', 'inappropriate', 'other'),
-    allowNull: false,
-  },
-  description: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-  },
-  isResolved: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: false,
-  },
-  resolvedByUserId: {
-    type: DataTypes.INTEGER,
-    allowNull: true,
-    references: {
-      model: "Users",
-      key: "id",
-    },
-  },
-  resolvedAt: {
-    type: DataTypes.DATE,
-    allowNull: true,
-  },
-}, {
-  tableName: "CommentReports",
-  timestamps: true,
-  indexes: [
-    {
-      fields: ['commentId']
-    },
-    {
-      fields: ['reportedByUserId']
-    },
-    {
-      fields: ['isResolved']
-    }
-  ]
-});
+  {
+    tableName: "MovieMondayLikes",
+    timestamps: true,
+    updatedAt: false,
+    indexes: [
+      {
+        unique: true,
+        fields: ["movieMondayId", "userId"],
+        name: "unique_user_moviemonday_like",
+      },
+    ],
+  }
+);
 
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
@@ -743,38 +873,38 @@ MovieCrew.belongsTo(MovieSelection, {
 
 // User-WatchlistCategory relationship (one-to-many)
 User.hasMany(WatchlistCategory, {
-  foreignKey: 'userId',
-  as: 'watchlistCategories'
+  foreignKey: "userId",
+  as: "watchlistCategories",
 });
 WatchlistCategory.belongsTo(User, {
-  foreignKey: 'userId'
+  foreignKey: "userId",
 });
 
 // WatchlistCategory-WatchlistItem relationship (one-to-many)
 WatchlistCategory.hasMany(WatchlistItem, {
-  foreignKey: 'categoryId',
-  as: 'items'
+  foreignKey: "categoryId",
+  as: "items",
 });
 WatchlistItem.belongsTo(WatchlistCategory, {
-  foreignKey: 'categoryId'
+  foreignKey: "categoryId",
 });
 
 // WatchlistCategory-WatchlistLike relationship (one-to-many)
 WatchlistCategory.hasMany(WatchlistLike, {
-  foreignKey: 'watchlistCategoryId',
-  as: 'likes'
+  foreignKey: "watchlistCategoryId",
+  as: "likes",
 });
 WatchlistLike.belongsTo(WatchlistCategory, {
-  foreignKey: 'watchlistCategoryId'
+  foreignKey: "watchlistCategoryId",
 });
 
 // User-WatchlistLike relationship (one-to-many)
 User.hasMany(WatchlistLike, {
-  foreignKey: 'userId',
-  as: 'watchlistLikes'
+  foreignKey: "userId",
+  as: "watchlistLikes",
 });
 WatchlistLike.belongsTo(User, {
-  foreignKey: 'userId'
+  foreignKey: "userId",
 });
 // CommentSection associations
 CommentSection.hasMany(Comment, {
@@ -853,6 +983,10 @@ CommentReport.belongsTo(User, {
   foreignKey: "resolvedByUserId",
   as: "resolver",
 });
+MovieMonday.hasMany(MovieMondayLike, { foreignKey: "movieMondayId" });
+MovieMondayLike.belongsTo(MovieMonday, { foreignKey: "movieMondayId" });
+User.hasMany(MovieMondayLike, { foreignKey: "userId" });
+MovieMondayLike.belongsTo(User, { foreignKey: "userId" });
 
 module.exports = {
   MovieMonday,
