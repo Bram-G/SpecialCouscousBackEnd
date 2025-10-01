@@ -33,6 +33,372 @@ const voteLimiter = rateLimit({
 });
 
 // ============================================
+// HELPER FUNCTIONS
+// ============================================
+
+// Validate that content exists and user has access
+const validateContentAccess = async (contentType, contentId, userId = null) => {
+  switch (contentType) {
+    case 'movie':
+      // Movies are always accessible (from TMDB API)
+      return { valid: true, title: `Movie ${contentId}` };
+      
+    case 'watchlist':
+      const watchlist = await WatchlistCategory.findByPk(contentId, {
+        include: [{
+          model: User,
+          attributes: ['id', 'username']
+        }]
+      });
+      
+      if (!watchlist) {
+        return { valid: false, error: 'Watchlist not found' };
+      }
+      
+      // Check if user can access this watchlist
+      if (!watchlist.isPublic && (!userId || watchlist.userId !== userId)) {
+        return { valid: false, error: 'This watchlist is private' };
+      }
+      
+      return { 
+        valid: true, 
+        title: watchlist.name,
+        isOwner: userId === watchlist.userId,
+        watchlist 
+      };
+      
+    case 'moviemonday':
+      // TODO: Add MovieMonday validation when implementing that feature
+      return { valid: false, error: 'Movie Monday comments not yet implemented' };
+      
+    default:
+      return { valid: false, error: 'Invalid content type' };
+  }
+};
+
+// Get comments with consistent structure regardless of content type
+const getCommentsForContent = async (contentType, contentId, options = {}) => {
+  const { 
+    page = 1, 
+    limit = 20, 
+    sort = 'top',
+    userId = null 
+  } = options;
+
+  // Validate content access
+  const validation = await validateContentAccess(contentType, contentId, userId);
+  if (!validation.valid) {
+    throw new Error(validation.error);
+  }
+
+  // Check if comment section exists
+  const commentSection = await CommentSection.findOne({
+    where: { 
+      contentType,
+      contentId: parseInt(contentId)
+    }
+  });
+
+  if (!commentSection) {
+    return {
+      comments: [],
+      totalComments: 0,
+      hasMore: false,
+      currentPage: 1,
+      totalPages: 0,
+      contentInfo: validation
+    };
+  }
+
+  // Build sort order
+  let orderClause;
+  switch (sort) {
+    case 'new':
+      orderClause = [['createdAt', 'DESC']];
+      break;
+    case 'controversial':
+      orderClause = [
+        [sequelize.literal('(upvotes + downvotes)'), 'DESC'],
+        [sequelize.literal('ABS(upvotes - downvotes)'), 'ASC']
+      ];
+      break;
+    case 'top':
+    default:
+      orderClause = [['voteScore', 'DESC'], ['createdAt', 'DESC']];
+      break;
+  }
+
+  const offset = (page - 1) * limit;
+
+  // Get top-level comments with user votes
+  const { count, rows: topLevelComments } = await Comment.findAndCountAll({
+    where: { 
+      commentSectionId: commentSection.id,
+      parentCommentId: null,
+      isDeleted: false,
+      isHidden: false
+    },
+    include: [
+      {
+        model: User,
+        as: 'author',
+        attributes: ['id', 'username']
+      },
+      {
+        model: CommentVote,
+        as: 'votes',
+        where: userId ? { userId } : undefined,
+        required: false,
+        attributes: ['voteType']
+      }
+    ],
+    order: orderClause,
+    limit: parseInt(limit),
+    offset,
+    distinct: true
+  });
+
+  // Get replies for each comment
+  const commentsWithReplies = await Promise.all(
+    topLevelComments.map(async (comment) => {
+      const replies = await Comment.findAll({
+        where: { 
+          parentCommentId: comment.id,
+          isDeleted: false,
+          isHidden: false
+        },
+        include: [
+          {
+            model: User,
+            as: 'author',
+            attributes: ['id', 'username']
+          },
+          {
+            model: CommentVote,
+            as: 'votes',
+            where: userId ? { userId } : undefined,
+            required: false,
+            attributes: ['voteType']
+          }
+        ],
+        order: [['voteScore', 'DESC'], ['createdAt', 'ASC']],
+        limit: 3
+      });
+
+      const commentData = comment.get({ plain: true });
+      
+      if (userId && comment.votes?.length > 0) {
+        commentData.userVote = comment.votes[0].voteType;
+      }
+
+      const formattedReplies = replies.map(reply => {
+        const replyData = reply.get({ plain: true });
+        if (userId && reply.votes?.length > 0) {
+          replyData.userVote = reply.votes[0].voteType;
+        }
+        return replyData;
+      });
+
+      return {
+        ...commentData,
+        replies: formattedReplies,
+        hasMoreReplies: comment.replyCount > 3
+      };
+    })
+  );
+
+  const totalPages = Math.ceil(count / limit);
+
+  return {
+    comments: commentsWithReplies,
+    totalComments: commentSection.totalComments,
+    hasMore: page < totalPages,
+    currentPage: parseInt(page),
+    totalPages,
+    sort,
+    contentInfo: validation
+  };
+};
+
+// ============================================
+// UNIVERSAL ROUTES (work for any content type)
+// ============================================
+
+// GET /api/comments/:contentType/:contentId - Get comments for any content
+router.get('/:contentType/:contentId', async (req, res) => {
+  try {
+    const { contentType, contentId } = req.params;
+    const { page, limit, sort } = req.query;
+    const userId = req.user?.id;
+
+    // Validate content type
+    if (!['movie', 'watchlist', 'moviemonday'].includes(contentType)) {
+      return res.status(400).json({ message: 'Invalid content type' });
+    }
+
+    if (!contentId || isNaN(contentId)) {
+      return res.status(400).json({ message: 'Valid content ID is required' });
+    }
+
+    const result = await getCommentsForContent(contentType, contentId, {
+      page,
+      limit,
+      sort,
+      userId
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Error fetching comments:', error);
+    if (error.message.includes('not found') || error.message.includes('private')) {
+      return res.status(404).json({ message: error.message });
+    }
+    res.status(500).json({ message: 'Failed to fetch comments' });
+  }
+});
+
+// POST /api/comments/:contentType/:contentId - Create comment for any content
+router.post('/:contentType/:contentId', auth, commentLimiter, async (req, res) => {
+  try {
+    const { contentType, contentId } = req.params;
+    const { content, parentCommentId } = req.body;
+    const userId = req.user.id;
+
+    // Validate content type
+    if (!['movie', 'watchlist', 'moviemonday'].includes(contentType)) {
+      return res.status(400).json({ message: 'Invalid content type' });
+    }
+
+    if (!contentId || isNaN(contentId)) {
+      return res.status(400).json({ message: 'Valid content ID is required' });
+    }
+
+    if (!content || content.trim().length < 10) {
+      return res.status(400).json({ message: 'Comment must be at least 10 characters long' });
+    }
+
+    if (content.length > 1000) {
+      return res.status(400).json({ message: 'Comment cannot exceed 1000 characters' });
+    }
+
+    // Validate content access
+    const validation = await validateContentAccess(contentType, contentId, userId);
+    if (!validation.valid) {
+      return res.status(404).json({ message: validation.error });
+    }
+
+    // Check account age (24 hours anti-spam)
+    const user = await User.findByPk(userId);
+    const accountAge = Date.now() - new Date(user.createdAt).getTime();
+    const twentyFourHours = 24 * 60 * 60 * 1000;
+    
+    if (accountAge < twentyFourHours) {
+      return res.status(403).json({ 
+        message: 'Account must be at least 24 hours old to comment' 
+      });
+    }
+
+    let commentSection;
+    let parentComment = null;
+    let depth = 0;
+
+    // Get or create comment section (lazy loading!)
+    [commentSection] = await CommentSection.findOrCreate({
+      where: { 
+        contentType,
+        contentId: parseInt(contentId)
+      },
+      defaults: {
+        contentType,
+        contentId: parseInt(contentId),
+        totalComments: 0,
+        isActive: true
+      }
+    });
+
+    // Handle replies
+    if (parentCommentId) {
+      parentComment = await Comment.findOne({
+        where: { 
+          id: parentCommentId,
+          commentSectionId: commentSection.id,
+          isDeleted: false
+        }
+      });
+
+      if (!parentComment) {
+        return res.status(404).json({ message: 'Parent comment not found' });
+      }
+
+      depth = parentComment.depth + 1;
+      
+      if (depth > 5) {
+        return res.status(400).json({ message: 'Maximum reply depth exceeded' });
+      }
+    }
+
+    // Create the comment
+    const comment = await Comment.create({
+      commentSectionId: commentSection.id,
+      userId,
+      parentCommentId: parentCommentId || null,
+      content: content.trim(),
+      depth,
+      voteScore: 0,
+      upvotes: 0,
+      downvotes: 0,
+      replyCount: 0
+    });
+
+    // Update counters
+    await Promise.all([
+      commentSection.increment('totalComments'),
+      parentComment ? parentComment.increment('replyCount') : Promise.resolve()
+    ]);
+
+    // Return the new comment with author info
+    const newComment = await Comment.findByPk(comment.id, {
+      include: [
+        {
+          model: User,
+          as: 'author',
+          attributes: ['id', 'username']
+        }
+      ]
+    });
+
+    res.status(201).json({
+      message: 'Comment created successfully',
+      comment: {
+        ...newComment.get({ plain: true }),
+        userVote: null,
+        replies: [],
+        hasMoreReplies: false
+      }
+    });
+
+  } catch (error) {
+    console.error('Error creating comment:', error);
+    res.status(500).json({ message: 'Failed to create comment' });
+  }
+});
+
+// ============================================
+// LEGACY ROUTES (for backward compatibility)
+// ============================================
+
+// Legacy movie routes redirect to new polymorphic routes
+router.get('/:movieId', (req, res, next) => {
+  // If it's just a number, assume it's the old movie route format
+  if (!isNaN(req.params.movieId) && !req.params.movieId.includes('/')) {
+    req.url = `/movie/${req.params.movieId}${req.url.includes('?') ? req.url.substring(req.url.indexOf('?')) : ''}`;
+    return router.handle(req, res, next);
+  }
+  next();
+});
+
+// ============================================
 // GET /api/comments/:movieId - Get all comments for a movie
 // ============================================
 router.get('/:movieId', async (req, res) => {

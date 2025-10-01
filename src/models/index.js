@@ -426,10 +426,16 @@ const CommentSection = sequelize.define("CommentSection", {
     primaryKey: true,
     autoIncrement: true,
   },
-  movieId: {
+  contentType: {
+    type: DataTypes.ENUM('movie', 'watchlist', 'moviemonday'),
+    allowNull: false,
+    validate: {
+      isIn: [['movie', 'watchlist', 'moviemonday']]
+    }
+  },
+  contentId: {
     type: DataTypes.INTEGER,
     allowNull: false,
-    unique: true, // Each movie can only have one comment section
     validate: {
       notEmpty: true,
     },
@@ -450,7 +456,14 @@ const CommentSection = sequelize.define("CommentSection", {
   indexes: [
     {
       unique: true,
-      fields: ['movieId'] // Fast lookup by movie ID
+      fields: ['contentType', 'contentId'], // Unique combination of content type and ID
+      name: 'unique_content_comment_section'
+    },
+    {
+      fields: ['contentType'] // Fast filtering by content type
+    },
+    {
+      fields: ['contentId'] // Fast lookup by content ID
     }
   ]
 });
