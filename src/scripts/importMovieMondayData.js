@@ -217,9 +217,9 @@ async function processCSVData(csvData) {
   // Create users with the same password
   const users = {
     Bram: await getOrCreateUser('Bram', 'bram.gibson@hotmail.com', 'password'),
-    Syd: await getOrCreateUser('Syd', 'syd@test.com', 'password'),
-    Tim: await getOrCreateUser('Tim', 'tim@test.com', 'password'),
-    Ellie: await getOrCreateUser('Ellie', 'ellie@test.com', 'password'),
+    Syd: await getOrCreateUser('Syd', 'sydneykmartin1@gmail.com', 'password'),
+    Tim: await getOrCreateUser('Tim', 'tim.bangssmhh@gmail.com', 'password'),
+    Ellie: await getOrCreateUser('Ellie', 'elliemcummings98@gmail.com', 'password'),
     Austin: await getOrCreateUser('Austin', 'Austin@test.com', 'password'),
     Kyle: await getOrCreateUser('Kyle', 'Kyle@test.com', 'password')
   };
