@@ -19,11 +19,14 @@ router.post('/register', async (req, res) => {
       });
     }
 
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+
     const existingUser = await User.findOne({
       where: {
         [Op.or]: [
           { username: username },
-          { email: email }
+          { email: normalizedEmail }  // Use normalized email
         ]
       }
     });
@@ -40,10 +43,10 @@ router.post('/register', async (req, res) => {
     const verificationToken = crypto.randomBytes(32).toString('hex');
     const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
     
-    // Create the user
+    // Create the user with normalized email
     const user = await User.create({
       username,
-      email,
+      email: normalizedEmail,  // Store normalized email
       password: hashedPassword,
       isVerified: false,
       verificationToken,
@@ -232,10 +235,13 @@ router.post('/resend-verification', async (req, res) => {
       });
     }
     
-    const user = await User.findOne({ where: { email } });
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    const user = await User.findOne({ where: { email: normalizedEmail } });
     
     if (!user) {
-      console.log('No user found with email:', email);
+      console.log('No user found with email:', normalizedEmail);
       return res.json({ 
         success: true,
         message: 'If your email exists in our system, a verification email has been sent.' 
@@ -298,7 +304,10 @@ router.post('/forgot-password', async (req, res) => {
   try {
     const { email } = req.body;
     
-    const user = await User.findOne({ where: { email } });
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+    
+    const user = await User.findOne({ where: { email: normalizedEmail } });
     
     if (!user) {
       // For security, don't reveal if email exists
@@ -323,8 +332,11 @@ router.post('/check-verification', async (req, res) => {
       return res.status(400).json({ message: 'Email is required' });
     }
     
+    // Normalize email to lowercase
+    const normalizedEmail = email.toLowerCase().trim();
+    
     const user = await User.findOne({ 
-      where: { email },
+      where: { email: normalizedEmail },
       attributes: ['id', 'email', 'isVerified'] 
     });
     
