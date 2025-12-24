@@ -17,6 +17,7 @@ const NodeCache = require("node-cache");
 const statsCache = new NodeCache({ stdTTL: 3600 });
 const STATS_CACHE_KEY = "movieMondayStats";
 const authMiddleware = require("../middleware/auth");
+const optionalAuth = require("../middleware/optionalAuth");
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -1399,6 +1400,46 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
       message: "Failed to add movie",
       error: error.message,
       stack: error.stack,
+    });
+  }
+});
+router.post('/check-watched', optionalAuth, async (req, res) => {
+  try {
+    const { group_id, tmdb_ids } = req.body;
+    
+    // Validate inputs
+    if (!group_id || !Array.isArray(tmdb_ids) || tmdb_ids.length === 0) {
+      return res.json({ watched: [] });
+    }
+
+    // Query MovieSelections that match the criteria
+    const watchedMovies = await MovieSelection.findAll({
+      attributes: ['tmdbMovieId'],
+      include: [{
+        model: MovieMonday,
+        attributes: [],
+        where: { 
+          GroupId: group_id 
+        },
+        required: true
+      }],
+      where: {
+        tmdbMovieId: { [Op.in]: tmdb_ids }
+      },
+      group: ['MovieSelection.tmdbMovieId'],
+      raw: true
+    });
+
+    // Extract just the TMDB IDs that have been watched
+    const watchedIds = watchedMovies.map(m => m.tmdbMovieId);
+    
+    res.json({ watched: watchedIds });
+    
+  } catch (error) {
+    console.error('Error checking watched status:', error);
+    res.status(500).json({ 
+      error: 'Failed to check watched status',
+      watched: [] 
     });
   }
 });
