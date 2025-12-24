@@ -392,14 +392,13 @@ router.post('/reset-password/:token', async (req, res) => {
 });
 
 router.get('/verify', auth, (req, res) => {
-  // If we reach here, the auth middleware has already verified the token
-  // and attached the user to the request
   res.json({
     valid: true,
     user: {
       id: req.user.id,
       username: req.user.username,
-      email: req.user.email
+      email: req.user.email,
+      Groups: req.user.Groups || []
     }
   });
 });
