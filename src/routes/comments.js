@@ -453,15 +453,10 @@ router.post(
 // ============================================
 
 // Legacy movie routes redirect to new polymorphic routes
-router.get("/:movieId", (req, res, next) => {
-  // If it's just a number, assume it's the old movie route format
-  if (!isNaN(req.params.movieId) && !req.params.movieId.includes("/")) {
-    req.url = `/movie/${req.params.movieId}${
-      req.url.includes("?") ? req.url.substring(req.url.indexOf("?")) : ""
-    }`;
-    return router.handle(req, res, next);
-  }
-  next();
+router.use((req, res, next) => {
+  const queryString = req.url.includes('?') ? req.url.substring(req.url.indexOf("?")) : "";
+  console.log(`Comment Route Hit: ${req.method} ${req.originalUrl || req.url}${queryString}`);
+  next();  
 });
 
 // ============================================
