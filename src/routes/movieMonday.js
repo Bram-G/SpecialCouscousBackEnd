@@ -1444,6 +1444,213 @@ router.post('/check-watched', optionalAuth, async (req, res) => {
   }
 });
 
+// POST /api/movie-monday/discovery-status
+// Check watched status and voting history for multiple movies
+router.post('/discovery-status', optionalAuth, async (req, res) => {
+  try {
+    const { group_id, tmdb_ids } = req.body;
+    
+    // Validate inputs
+    if (!group_id || !Array.isArray(tmdb_ids) || tmdb_ids.length === 0) {
+      return res.json({ 
+        watched: [],
+        votedButNotPicked: []
+      });
+    }
+
+    // Get all MovieMondays for this group
+    const movieMondays = await MovieMonday.findAll({
+      where: { GroupId: group_id },
+      include: [{
+        model: MovieSelection,
+        attributes: ['id', 'tmdbMovieId', 'isWinner', 'title', 'posterPath', 'releaseDate', 'voteAverage'],
+        required: true
+      }]
+    });
+
+    // Extract watched movie IDs (where movie was selected and won)
+    const watchedIds = new Set();
+    
+    // Extract voted but not picked movie IDs (where movie was selected but didn't win)
+    const votedButNotPickedMovies = [];
+    
+    movieMondays.forEach(monday => {
+      monday.movieSelections.forEach(selection => {
+        if (tmdb_ids.includes(selection.tmdbMovieId)) {
+          if (selection.isWinner) {
+            watchedIds.add(selection.tmdbMovieId);
+          } else {
+            // This movie was voted on but didn't win
+            votedButNotPickedMovies.push({
+              tmdbMovieId: selection.tmdbMovieId,
+              title: selection.title,
+              posterPath: selection.posterPath,
+              releaseDate: selection.releaseDate,
+              voteAverage: selection.voteAverage,
+              eventDate: monday.eventDate
+            });
+          }
+        }
+      });
+    });
+
+    // Remove duplicates from votedButNotPicked (same movie might have lost multiple times)
+    const uniqueVotedButNotPicked = Array.from(
+      new Map(votedButNotPickedMovies.map(m => [m.tmdbMovieId, m])).values()
+    );
+    
+    res.json({ 
+      watched: Array.from(watchedIds),
+      votedButNotPicked: uniqueVotedButNotPicked
+    });
+    
+  } catch (error) {
+    console.error('Error checking discovery status:', error);
+    res.status(500).json({ 
+      error: 'Failed to check discovery status',
+      watched: [],
+      votedButNotPicked: []
+    });
+  }
+});
+
+// GET /api/movie-monday/group-recommendations/:groupId
+// Get movie recommendations based on group's viewing and voting history
+router.get('/group-recommendations/:groupId', optionalAuth, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const limit = parseInt(req.query.limit) || 20;
+
+    // Get all movie selections for this group (both winners and losers)
+    const movieMondays = await MovieMonday.findAll({
+      where: { GroupId: groupId },
+      include: [{
+        model: MovieSelection,
+        attributes: ['tmdbMovieId', 'genres', 'isWinner'],
+        required: true
+      }],
+      order: [['eventDate', 'DESC']]
+    });
+
+    if (!movieMondays || movieMondays.length === 0) {
+      return res.json({ recommendations: [] });
+    }
+
+    // Extract all TMDB movie IDs from group's history
+    const allMovieIds = [];
+    const genreFrequency = new Map();
+    
+    movieMondays.forEach(monday => {
+      monday.movieSelections.forEach(selection => {
+        allMovieIds.push(selection.tmdbMovieId);
+        
+        // Track genre frequency (with higher weight for winners)
+        if (selection.genres) {
+          const genres = typeof selection.genres === 'string' 
+            ? JSON.parse(selection.genres) 
+            : selection.genres;
+          
+          genres.forEach(genre => {
+            const weight = selection.isWinner ? 2 : 1; // Winners count double
+            genreFrequency.set(genre, (genreFrequency.get(genre) || 0) + weight);
+          });
+        }
+      });
+    });
+
+    // Get top 3 most common genres
+    const topGenres = Array.from(genreFrequency.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([genre]) => genre);
+
+    res.json({
+      recommendations: {
+        basedOnMovies: allMovieIds,
+        topGenres: topGenres,
+        totalMoviesWatched: movieMondays.filter(m => 
+          m.movieSelections.some(s => s.isWinner)
+        ).length,
+        totalMoviesVotedOn: allMovieIds.length
+      }
+    });
+
+  } catch (error) {
+    console.error('Error generating group recommendations:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate recommendations',
+      recommendations: [] 
+    });
+  }
+});
+
+// GET /api/movie-monday/voted-but-not-picked/:groupId
+// Get all movies that were voted on but didn't win
+router.get('/voted-but-not-picked/:groupId', optionalAuth, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    // Get all losing movie selections for this group
+    const movieMondays = await MovieMonday.findAll({
+      where: { GroupId: groupId },
+      include: [{
+        model: MovieSelection,
+        attributes: ['tmdbMovieId', 'title', 'posterPath', 'releaseDate', 'voteAverage', 'overview'],
+        where: { isWinner: false },
+        required: true
+      }],
+      order: [['eventDate', 'DESC']]
+    });
+
+    // Flatten and deduplicate movies
+    const allLosingMovies = [];
+    const seenMovieIds = new Set();
+
+    movieMondays.forEach(monday => {
+      monday.movieSelections.forEach(selection => {
+        if (!seenMovieIds.has(selection.tmdbMovieId)) {
+          seenMovieIds.add(selection.tmdbMovieId);
+          allLosingMovies.push({
+            tmdbMovieId: selection.tmdbMovieId,
+            title: selection.title,
+            posterPath: selection.posterPath,
+            releaseDate: selection.releaseDate,
+            voteAverage: selection.voteAverage,
+            overview: selection.overview,
+            lastVotedDate: monday.eventDate
+          });
+        }
+      });
+    });
+
+    // Paginate results
+    const paginatedMovies = allLosingMovies.slice(offset, offset + limit);
+    const totalCount = allLosingMovies.length;
+    const totalPages = Math.ceil(totalCount / limit);
+
+    res.json({
+      movies: paginatedMovies,
+      pagination: {
+        currentPage: page,
+        totalPages: totalPages,
+        totalCount: totalCount,
+        hasMore: page < totalPages
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching voted but not picked movies:', error);
+    res.status(500).json({ 
+      error: 'Failed to fetch movies',
+      movies: [],
+      pagination: { currentPage: 1, totalPages: 0, totalCount: 0, hasMore: false }
+    });
+  }
+});
+
 // PUT /update-picker - Update picker for movie monday
 router.put("/update-picker", authMiddleware, async (req, res) => {
   try {
