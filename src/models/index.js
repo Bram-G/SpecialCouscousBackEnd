@@ -402,9 +402,22 @@ const MovieSelection = sequelize.define(
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    // ✅ ADD THESE TWO COLUMNS:
+    releaseDate: {
+      type: DataTypes.DATEONLY,
+      allowNull: true,
+    },
+    voteAverage: {
+      type: DataTypes.FLOAT,
+      allowNull: true,
+    },
+    overview: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
   {
-    tableName: "MovieSelections", // Explicitly set table name
+    tableName: "MovieSelections",
     timestamps: true,
   }
 );
