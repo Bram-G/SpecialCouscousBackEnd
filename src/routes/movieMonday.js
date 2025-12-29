@@ -1403,10 +1403,10 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
     });
   }
 });
-router.post('/check-watched', optionalAuth, async (req, res) => {
+router.post("/check-watched", optionalAuth, async (req, res) => {
   try {
     const { group_id, tmdb_ids } = req.body;
-    
+
     // Validate inputs
     if (!group_id || !Array.isArray(tmdb_ids) || tmdb_ids.length === 0) {
       return res.json({ watched: [] });
@@ -1414,68 +1414,79 @@ router.post('/check-watched', optionalAuth, async (req, res) => {
 
     // Query MovieSelections that match the criteria
     const watchedMovies = await MovieSelection.findAll({
-      attributes: ['tmdbMovieId'],
-      include: [{
-        model: MovieMonday,
-        attributes: [],
-        where: { 
-          GroupId: group_id 
+      attributes: ["tmdbMovieId"],
+      include: [
+        {
+          model: MovieMonday,
+          attributes: [],
+          where: {
+            GroupId: group_id,
+          },
+          required: true,
         },
-        required: true
-      }],
+      ],
       where: {
-        tmdbMovieId: { [Op.in]: tmdb_ids }
+        tmdbMovieId: { [Op.in]: tmdb_ids },
       },
-      group: ['MovieSelection.tmdbMovieId'],
-      raw: true
+      group: ["MovieSelection.tmdbMovieId"],
+      raw: true,
     });
 
     // Extract just the TMDB IDs that have been watched
-    const watchedIds = watchedMovies.map(m => m.tmdbMovieId);
-    
+    const watchedIds = watchedMovies.map((m) => m.tmdbMovieId);
+
     res.json({ watched: watchedIds });
-    
   } catch (error) {
-    console.error('Error checking watched status:', error);
-    res.status(500).json({ 
-      error: 'Failed to check watched status',
-      watched: [] 
+    console.error("Error checking watched status:", error);
+    res.status(500).json({
+      error: "Failed to check watched status",
+      watched: [],
     });
   }
 });
 
 // POST /api/movie-monday/discovery-status
 // Check watched status and voting history for multiple movies
-router.post('/discovery-status', optionalAuth, async (req, res) => {
+router.post("/discovery-status", optionalAuth, async (req, res) => {
   try {
     const { group_id, tmdb_ids } = req.body;
-    
+
     // Validate inputs
     if (!group_id || !Array.isArray(tmdb_ids) || tmdb_ids.length === 0) {
-      return res.json({ 
+      return res.json({
         watched: [],
-        votedButNotPicked: []
+        votedButNotPicked: [],
       });
     }
 
     // Get all MovieMondays for this group
     const movieMondays = await MovieMonday.findAll({
       where: { GroupId: group_id },
-      include: [{
-        model: MovieSelection,
-        attributes: ['id', 'tmdbMovieId', 'isWinner', 'title', 'posterPath', 'releaseDate', 'voteAverage'],
-        required: true
-      }]
+      include: [
+        {
+          model: MovieSelection,
+          attributes: [
+            "id",
+            "tmdbMovieId",
+            "isWinner",
+            "title",
+            "posterPath",
+            "releaseDate",
+            "voteAverage",
+          ],
+          required: true,
+        },
+      ],
     });
 
     // Extract watched movie IDs (where movie was selected and won)
     const watchedIds = new Set();
-    
+
     // Extract voted but not picked movie IDs (where movie was selected but didn't win)
     const votedButNotPickedMovies = [];
-    
-    movieMondays.forEach(monday => {
-      monday.movieSelections.forEach(selection => {
+
+    movieMondays.forEach((monday) => {
+      monday.movieSelections.forEach((selection) => {
         if (tmdb_ids.includes(selection.tmdbMovieId)) {
           if (selection.isWinner) {
             watchedIds.add(selection.tmdbMovieId);
@@ -1487,7 +1498,7 @@ router.post('/discovery-status', optionalAuth, async (req, res) => {
               posterPath: selection.posterPath,
               releaseDate: selection.releaseDate,
               voteAverage: selection.voteAverage,
-              eventDate: monday.eventDate
+              eventDate: monday.eventDate,
             });
           }
         }
@@ -1496,97 +1507,105 @@ router.post('/discovery-status', optionalAuth, async (req, res) => {
 
     // Remove duplicates from votedButNotPicked (same movie might have lost multiple times)
     const uniqueVotedButNotPicked = Array.from(
-      new Map(votedButNotPickedMovies.map(m => [m.tmdbMovieId, m])).values()
+      new Map(votedButNotPickedMovies.map((m) => [m.tmdbMovieId, m])).values()
     );
-    
-    res.json({ 
+
+    res.json({
       watched: Array.from(watchedIds),
-      votedButNotPicked: uniqueVotedButNotPicked
+      votedButNotPicked: uniqueVotedButNotPicked,
     });
-    
   } catch (error) {
-    console.error('Error checking discovery status:', error);
-    res.status(500).json({ 
-      error: 'Failed to check discovery status',
+    console.error("Error checking discovery status:", error);
+    res.status(500).json({
+      error: "Failed to check discovery status",
       watched: [],
-      votedButNotPicked: []
+      votedButNotPicked: [],
     });
   }
 });
 
 // GET /api/movie-monday/group-recommendations/:groupId
 // Get movie recommendations based on group's viewing and voting history
-router.get('/group-recommendations/:groupId', optionalAuth, async (req, res) => {
-  try {
-    const { groupId } = req.params;
-    const limit = parseInt(req.query.limit) || 20;
+router.get(
+  "/group-recommendations/:groupId",
+  optionalAuth,
+  async (req, res) => {
+    try {
+      const { groupId } = req.params;
+      const limit = parseInt(req.query.limit) || 20;
 
-    // Get all movie selections for this group (both winners and losers)
-    const movieMondays = await MovieMonday.findAll({
-      where: { GroupId: groupId },
-      include: [{
-        model: MovieSelection,
-        attributes: ['tmdbMovieId', 'genres', 'isWinner'],
-        required: true
-      }],
-      order: [['eventDate', 'DESC']]
-    });
-
-    if (!movieMondays || movieMondays.length === 0) {
-      return res.json({ recommendations: [] });
-    }
-
-    // Extract all TMDB movie IDs from group's history
-    const allMovieIds = [];
-    const genreFrequency = new Map();
-    
-    movieMondays.forEach(monday => {
-      monday.movieSelections.forEach(selection => {
-        allMovieIds.push(selection.tmdbMovieId);
-        
-        // Track genre frequency (with higher weight for winners)
-        if (selection.genres) {
-          const genres = typeof selection.genres === 'string' 
-            ? JSON.parse(selection.genres) 
-            : selection.genres;
-          
-          genres.forEach(genre => {
-            const weight = selection.isWinner ? 2 : 1; // Winners count double
-            genreFrequency.set(genre, (genreFrequency.get(genre) || 0) + weight);
-          });
-        }
+      // Get all movie selections for this group (both winners and losers)
+      const movieMondays = await MovieMonday.findAll({
+        where: { GroupId: groupId },
+        include: [
+          {
+            model: MovieSelection,
+            attributes: ["tmdbMovieId", "genres", "isWinner"],
+            required: true,
+          },
+        ],
+        order: [["eventDate", "DESC"]],
       });
-    });
 
-    // Get top 3 most common genres
-    const topGenres = Array.from(genreFrequency.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([genre]) => genre);
-
-    res.json({
-      recommendations: {
-        basedOnMovies: allMovieIds,
-        topGenres: topGenres,
-        totalMoviesWatched: movieMondays.filter(m => 
-          m.movieSelections.some(s => s.isWinner)
-        ).length,
-        totalMoviesVotedOn: allMovieIds.length
+      if (!movieMondays || movieMondays.length === 0) {
+        return res.json({ recommendations: [] });
       }
-    });
 
-  } catch (error) {
-    console.error('Error generating group recommendations:', error);
-    res.status(500).json({ 
-      error: 'Failed to generate recommendations',
-      recommendations: [] 
-    });
+      // Extract all TMDB movie IDs from group's history
+      const allMovieIds = [];
+      const genreFrequency = new Map();
+
+      movieMondays.forEach((monday) => {
+        monday.movieSelections.forEach((selection) => {
+          allMovieIds.push(selection.tmdbMovieId);
+
+          // Track genre frequency (with higher weight for winners)
+          if (selection.genres) {
+            const genres =
+              typeof selection.genres === "string"
+                ? JSON.parse(selection.genres)
+                : selection.genres;
+
+            genres.forEach((genre) => {
+              const weight = selection.isWinner ? 2 : 1; // Winners count double
+              genreFrequency.set(
+                genre,
+                (genreFrequency.get(genre) || 0) + weight
+              );
+            });
+          }
+        });
+      });
+
+      // Get top 3 most common genres
+      const topGenres = Array.from(genreFrequency.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([genre]) => genre);
+
+      res.json({
+        recommendations: {
+          basedOnMovies: allMovieIds,
+          topGenres: topGenres,
+          totalMoviesWatched: movieMondays.filter((m) =>
+            m.movieSelections.some((s) => s.isWinner)
+          ).length,
+          totalMoviesVotedOn: allMovieIds.length,
+        },
+      });
+    } catch (error) {
+      console.error("Error generating group recommendations:", error);
+      res.status(500).json({
+        error: "Failed to generate recommendations",
+        recommendations: [],
+      });
+    }
   }
-});
+);
 
 // GET /api/movie-monday/voted-but-not-picked/:groupId
 // Get all movies that were voted on but didn't win
-router.get('/voted-but-not-picked/:groupId', optionalAuth, async (req, res) => {
+router.get("/voted-but-not-picked/:groupId", optionalAuth, async (req, res) => {
   try {
     const { groupId } = req.params;
     const page = parseInt(req.query.page) || 1;
@@ -1596,21 +1615,31 @@ router.get('/voted-but-not-picked/:groupId', optionalAuth, async (req, res) => {
     // Get all losing movie selections for this group
     const movieMondays = await MovieMonday.findAll({
       where: { GroupId: groupId },
-      include: [{
-        model: MovieSelection,
-        attributes: ['tmdbMovieId', 'title', 'posterPath', 'releaseDate', 'voteAverage', 'overview'],
-        where: { isWinner: false },
-        required: true
-      }],
-      order: [['eventDate', 'DESC']]
+      include: [
+        {
+          model: MovieSelection,
+          as: "movieSelections", // Add the association alias
+          attributes: [
+            "tmdbMovieId",
+            "title",
+            "posterPath",
+            "releaseDate",
+            "voteAverage",
+            "overview",
+          ],
+          where: { isWinner: false },
+          required: false, // Don't require selections
+        },
+      ],
+      order: [["date", "DESC"]], // Use 'date' not 'eventDate'
     });
 
     // Flatten and deduplicate movies
     const allLosingMovies = [];
     const seenMovieIds = new Set();
 
-    movieMondays.forEach(monday => {
-      monday.movieSelections.forEach(selection => {
+    movieMondays.forEach((monday) => {
+      monday.movieSelections.forEach((selection) => {
         if (!seenMovieIds.has(selection.tmdbMovieId)) {
           seenMovieIds.add(selection.tmdbMovieId);
           allLosingMovies.push({
@@ -1620,7 +1649,7 @@ router.get('/voted-but-not-picked/:groupId', optionalAuth, async (req, res) => {
             releaseDate: selection.releaseDate,
             voteAverage: selection.voteAverage,
             overview: selection.overview,
-            lastVotedDate: monday.eventDate
+            lastVotedDate: monday.eventDate,
           });
         }
       });
@@ -1637,16 +1666,20 @@ router.get('/voted-but-not-picked/:groupId', optionalAuth, async (req, res) => {
         currentPage: page,
         totalPages: totalPages,
         totalCount: totalCount,
-        hasMore: page < totalPages
-      }
+        hasMore: page < totalPages,
+      },
     });
-
   } catch (error) {
-    console.error('Error fetching voted but not picked movies:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch movies',
+    console.error("Error fetching voted but not picked movies:", error);
+    res.status(500).json({
+      error: "Failed to fetch movies",
       movies: [],
-      pagination: { currentPage: 1, totalPages: 0, totalCount: 0, hasMore: false }
+      pagination: {
+        currentPage: 1,
+        totalPages: 0,
+        totalCount: 0,
+        hasMore: false,
+      },
     });
   }
 });
@@ -2083,7 +2116,44 @@ router.get("/public/:slug", async (req, res) => {
     res.status(500).json({ message: "Failed to fetch Movie Monday" });
   }
 });
+// GET /api/movie-monday/group/:groupId - Get all Movie Mondays for a group
+router.get('/group/:groupId', authMiddleware, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const includeSelections = req.query.includeSelections === 'true';
+    const status = req.query.status?.split(',') || ['pending', 'in-progress', 'completed'];
 
+    const query = {
+      where: { 
+        GroupId: groupId,
+        status: { [Op.in]: status }
+      },
+      include: [
+        {
+          model: User,
+          as: 'picker',
+          attributes: ['id', 'username']
+        }
+      ],
+      order: [['date', 'DESC']]
+    };
+
+    if (includeSelections) {
+      query.include.push({
+        model: MovieSelection,
+        as: 'movieSelections',
+        attributes: ['id', 'title', 'tmdbMovieId', 'isWinner', 'posterPath'],
+        required: false
+      });
+    }
+
+    const movieMondays = await MovieMonday.findAll(query);
+    res.json(movieMondays);
+  } catch (error) {
+    console.error('Error fetching Movie Mondays:', error);
+    res.status(500).json({ error: 'Failed to fetch Movie Mondays' });
+  }
+});
 // GET all public movie mondays for a group
 // GET all public movie mondays for a group by slug
 router.get("/browse/group/:groupSlug", async (req, res) => {
