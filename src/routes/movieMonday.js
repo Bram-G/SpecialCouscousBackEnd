@@ -1498,7 +1498,7 @@ router.post("/discovery-status", optionalAuth, async (req, res) => {
               posterPath: selection.posterPath,
               releaseDate: selection.releaseDate,
               voteAverage: selection.voteAverage,
-              eventDate: monday.eventDate,
+              eventDate: monday.date,
             });
           }
         }
