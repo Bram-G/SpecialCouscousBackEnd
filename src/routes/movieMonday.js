@@ -1460,24 +1460,25 @@ router.post("/discovery-status", optionalAuth, async (req, res) => {
     }
 
     // Get all MovieMondays for this group
-    const movieMondays = await MovieMonday.findAll({
-      where: { GroupId: group_id },
-      include: [
-        {
-          model: MovieSelection,
-          attributes: [
-            "id",
-            "tmdbMovieId",
-            "isWinner",
-            "title",
-            "posterPath",
-            "releaseDate",
-            "voteAverage",
-          ],
-          required: true,
-        },
+const movieMondays = await MovieMonday.findAll({
+  where: { GroupId: group_id },
+  include: [
+    {
+      model: MovieSelection,
+      as: "movieSelections",        
+      attributes: [
+        "id",
+        "tmdbMovieId",
+        "isWinner",
+        "title",
+        "posterPath",
+        "releaseDate",
+        "voteAverage",
       ],
-    });
+      required: false,              
+    },                                
+  ],
+});
 
     // Extract watched movie IDs (where movie was selected and won)
     const watchedIds = new Set();
