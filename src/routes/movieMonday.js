@@ -98,7 +98,7 @@ const recalculateStats = async () => {
 async function updateWatchlistsForWinner(
   movieSelectionId,
   tmdbMovieId,
-  isWinner
+  isWinner,
 ) {
   try {
     if (!isWinner) return;
@@ -108,7 +108,7 @@ async function updateWatchlistsForWinner(
     });
 
     console.log(
-      `Found ${watchlistEntries.length} watchlist entries for movie ${tmdbMovieId}`
+      `Found ${watchlistEntries.length} watchlist entries for movie ${tmdbMovieId}`,
     );
 
     for (const entry of watchlistEntries) {
@@ -456,7 +456,7 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
       .filter((c) => c.job === "Director")
       .forEach((director) => {
         const historicalData = directorAppearances.get(
-          director.personId.toString()
+          director.personId.toString(),
         );
         currentMovieComparison.directors.push({
           name: director.name,
@@ -526,7 +526,7 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
           name,
           count: data.count,
           popularityPercentage: Math.round(
-            (data.count / totalMovieMondays) * 100
+            (data.count / totalMovieMondays) * 100,
           ),
         }))
         .sort((a, b) => b.count - a.count)
@@ -537,7 +537,7 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
           name,
           count: data.count,
           popularityPercentage: Math.round(
-            (data.count / totalMovieMondays) * 100
+            (data.count / totalMovieMondays) * 100,
           ),
         }))
         .sort((a, b) => b.count - a.count)
@@ -548,7 +548,7 @@ async function generateHistoricalStats(currentMonday, allMovieMondays) {
           name,
           count: data.count,
           popularityPercentage: Math.round(
-            (data.count / totalMovieMondays) * 100
+            (data.count / totalMovieMondays) * 100,
           ),
         }))
         .sort((a, b) => b.count - a.count)
@@ -643,7 +643,7 @@ router.get("/all", authMiddleware, async (req, res) => {
 
         const writers = movie.crew
           .filter(
-            (person) => person.job === "Writer" || person.job === "Screenplay"
+            (person) => person.job === "Writer" || person.job === "Screenplay",
           )
           .map((writer) => ({
             id: writer.personId,
@@ -796,7 +796,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
       const plainMM = mm.get({ plain: true });
       const date = new Date(plainMM.date);
       const monthKey = `${date.getFullYear()}-${String(
-        date.getMonth() + 1
+        date.getMonth() + 1,
       ).padStart(2, "0")}`;
 
       if (!analytics.moviesByMonth[monthKey]) {
@@ -881,7 +881,7 @@ router.get("/analytics", authMiddleware, async (req, res) => {
         }
 
         const pickerSelections = plainMM.movieSelections.filter(
-          (m) => m.isWinner !== null
+          (m) => m.isWinner !== null,
         );
 
         if (pickerSelections.length > 0) {
@@ -1293,7 +1293,7 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
     }
 
     const existingMovie = movieMonday.movieSelections.find(
-      (ms) => ms.tmdbMovieId === parseInt(tmdbMovieId)
+      (ms) => ms.tmdbMovieId === parseInt(tmdbMovieId),
     );
     if (existingMovie) {
       return res.status(400).json({
@@ -1313,7 +1313,7 @@ router.post("/add-movie", authMiddleware, async (req, res) => {
 
     try {
       const tmdbResponse = await fetch(
-        `https://api.themoviedb.org/3/movie/${tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`
+        `https://api.themoviedb.org/3/movie/${tmdbMovieId}?append_to_response=credits&api_key=${process.env.TMDB_API_KEY}`,
       );
 
       if (tmdbResponse.ok) {
@@ -1427,6 +1427,7 @@ router.post("/check-watched", optionalAuth, async (req, res) => {
       ],
       where: {
         tmdbMovieId: { [Op.in]: tmdb_ids },
+        isWinner: true, // Only movies that actually won = were watched
       },
       group: ["MovieSelection.tmdbMovieId"],
       raw: true,
@@ -1460,25 +1461,25 @@ router.post("/discovery-status", optionalAuth, async (req, res) => {
     }
 
     // Get all MovieMondays for this group
-const movieMondays = await MovieMonday.findAll({
-  where: { GroupId: group_id },
-  include: [
-    {
-      model: MovieSelection,
-      as: "movieSelections",        
-      attributes: [
-        "id",
-        "tmdbMovieId",
-        "isWinner",
-        "title",
-        "posterPath",
-        "releaseDate",
-        "voteAverage",
+    const movieMondays = await MovieMonday.findAll({
+      where: { GroupId: group_id },
+      include: [
+        {
+          model: MovieSelection,
+          as: "movieSelections",
+          attributes: [
+            "id",
+            "tmdbMovieId",
+            "isWinner",
+            "title",
+            "posterPath",
+            "releaseDate",
+            "voteAverage",
+          ],
+          required: false,
+        },
       ],
-      required: false,              
-    },                                
-  ],
-});
+    });
 
     // Extract watched movie IDs (where movie was selected and won)
     const watchedIds = new Set();
@@ -1508,7 +1509,7 @@ const movieMondays = await MovieMonday.findAll({
 
     // Remove duplicates from votedButNotPicked (same movie might have lost multiple times)
     const uniqueVotedButNotPicked = Array.from(
-      new Map(votedButNotPickedMovies.map((m) => [m.tmdbMovieId, m])).values()
+      new Map(votedButNotPickedMovies.map((m) => [m.tmdbMovieId, m])).values(),
     );
 
     res.json({
@@ -1571,7 +1572,7 @@ router.get(
               const weight = selection.isWinner ? 2 : 1; // Winners count double
               genreFrequency.set(
                 genre,
-                (genreFrequency.get(genre) || 0) + weight
+                (genreFrequency.get(genre) || 0) + weight,
               );
             });
           }
@@ -1589,7 +1590,7 @@ router.get(
           basedOnMovies: allMovieIds,
           topGenres: topGenres,
           totalMoviesWatched: movieMondays.filter((m) =>
-            m.movieSelections.some((s) => s.isWinner)
+            m.movieSelections.some((s) => s.isWinner),
           ).length,
           totalMoviesVotedOn: allMovieIds.length,
         },
@@ -1601,7 +1602,7 @@ router.get(
         recommendations: [],
       });
     }
-  }
+  },
 );
 
 // GET /api/movie-monday/voted-but-not-picked/:groupId
@@ -1758,14 +1759,14 @@ router.post("/:id/set-winner", authMiddleware, async (req, res) => {
 
     await MovieSelection.update(
       { isWinner: newWinnerStatus },
-      { where: { id: movieSelectionId } }
+      { where: { id: movieSelectionId } },
     );
 
     if (newWinnerStatus) {
       await updateWatchlistsForWinner(
         movieSelectionId,
         movieSelection.tmdbMovieId,
-        true
+        true,
       );
     }
 
@@ -1824,7 +1825,7 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
               typeof c === "string" &&
               c.trim() &&
               c !== "[]" &&
-              c !== "[ ]"
+              c !== "[ ]",
           )
           .map((c) => c.trim())
       : [];
@@ -1837,7 +1838,7 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
               typeof m === "string" &&
               m.trim() &&
               m !== "[]" &&
-              m !== "[ ]"
+              m !== "[ ]",
           )
           .map((m) => m.trim())
       : [];
@@ -1850,7 +1851,7 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
               typeof d === "string" &&
               d.trim() &&
               d !== "[]" &&
-              d !== "[ ]"
+              d !== "[ ]",
           )
           .map((d) => d.trim())
       : [];
@@ -1943,7 +1944,7 @@ router.delete(
         error: error.message,
       });
     }
-  }
+  },
 );
 
 // GET /:id/details - Get detailed movie monday info with optional history
@@ -2046,7 +2047,7 @@ router.get("/:id/details", authMiddleware, async (req, res) => {
 
       response.history = await generateHistoricalStats(
         movieMonday,
-        allMovieMondays
+        allMovieMondays,
       );
     }
 
@@ -2118,41 +2119,45 @@ router.get("/public/:slug", async (req, res) => {
   }
 });
 // GET /api/movie-monday/group/:groupId - Get all Movie Mondays for a group
-router.get('/group/:groupId', authMiddleware, async (req, res) => {
+router.get("/group/:groupId", authMiddleware, async (req, res) => {
   try {
     const { groupId } = req.params;
-    const includeSelections = req.query.includeSelections === 'true';
-    const status = req.query.status?.split(',') || ['pending', 'in-progress', 'completed'];
+    const includeSelections = req.query.includeSelections === "true";
+    const status = req.query.status?.split(",") || [
+      "pending",
+      "in-progress",
+      "completed",
+    ];
 
     const query = {
-      where: { 
+      where: {
         GroupId: groupId,
-        status: { [Op.in]: status }
+        status: { [Op.in]: status },
       },
       include: [
         {
           model: User,
-          as: 'picker',
-          attributes: ['id', 'username']
-        }
+          as: "picker",
+          attributes: ["id", "username"],
+        },
       ],
-      order: [['date', 'DESC']]
+      order: [["date", "DESC"]],
     };
 
     if (includeSelections) {
       query.include.push({
         model: MovieSelection,
-        as: 'movieSelections',
-        attributes: ['id', 'title', 'tmdbMovieId', 'isWinner', 'posterPath'],
-        required: false
+        as: "movieSelections",
+        attributes: ["id", "title", "tmdbMovieId", "isWinner", "posterPath"],
+        required: false,
       });
     }
 
     const movieMondays = await MovieMonday.findAll(query);
     res.json(movieMondays);
   } catch (error) {
-    console.error('Error fetching Movie Mondays:', error);
-    res.status(500).json({ error: 'Failed to fetch Movie Mondays' });
+    console.error("Error fetching Movie Mondays:", error);
+    res.status(500).json({ error: "Failed to fetch Movie Mondays" });
   }
 });
 // GET all public movie mondays for a group
@@ -2352,7 +2357,7 @@ router.get("/browse/groups", async (req, res) => {
               "Unknown",
           },
         };
-      })
+      }),
     );
 
     res.json(groupsWithStats);
@@ -2382,7 +2387,7 @@ function calculateGroupStats(movieMondays, group) {
   });
 
   const topGenre = Array.from(genreMap.entries()).sort(
-    (a, b) => b[1] - a[1]
+    (a, b) => b[1] - a[1],
   )[0];
 
   // Calculate actor stats
@@ -2397,7 +2402,7 @@ function calculateGroupStats(movieMondays, group) {
   });
 
   const topActorEntry = Array.from(actorMap.entries()).sort(
-    (a, b) => b[1] - a[1]
+    (a, b) => b[1] - a[1],
   )[0];
   const topActor = topActorEntry
     ? {
@@ -2431,7 +2436,7 @@ function calculateGroupStats(movieMondays, group) {
   });
 
   const topDrink = Array.from(drinkMap.entries()).sort(
-    (a, b) => b[1] - a[1]
+    (a, b) => b[1] - a[1],
   )[0];
   const topMeal = Array.from(mealMap.entries()).sort((a, b) => b[1] - a[1])[0];
 
@@ -2448,7 +2453,7 @@ function calculateGroupStats(movieMondays, group) {
       ? movieMondays.reduce(
           (earliest, mm) =>
             new Date(mm.date) < new Date(earliest) ? mm.date : earliest,
-          movieMondays[0].date
+          movieMondays[0].date,
         )
       : new Date().toISOString();
 
