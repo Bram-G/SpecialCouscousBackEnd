@@ -1641,18 +1641,20 @@ router.get("/voted-but-not-picked/:groupId", optionalAuth, async (req, res) => {
     const seenMovieIds = new Set();
 
     movieMondays.forEach((monday) => {
-      monday.movieSelections.forEach((selection) => {
-        if (!seenMovieIds.has(selection.tmdbMovieId)) {
-          seenMovieIds.add(selection.tmdbMovieId);
-          allLosingMovies.push({
-            tmdbMovieId: selection.tmdbMovieId,
-            title: selection.title,
-            posterPath: selection.posterPath,
-            releaseDate: selection.releaseDate,
-            voteAverage: selection.voteAverage,
-            overview: selection.overview,
-            lastVotedDate: monday.eventDate,
-          });
+  monday.movieSelections.forEach((selection) => {
+    if (watchedMovieIds.has(selection.tmdbMovieId)) return;
+    
+    if (!seenMovieIds.has(selection.tmdbMovieId)) {
+      seenMovieIds.add(selection.tmdbMovieId);
+      allLosingMovies.push({
+        tmdbMovieId: selection.tmdbMovieId,
+        title: selection.title,
+        posterPath: selection.posterPath,
+        releaseDate: selection.releaseDate,
+        voteAverage: selection.voteAverage,
+        overview: selection.overview,
+        lastVotedDate: monday.date,  
+      });
         }
       });
     });
