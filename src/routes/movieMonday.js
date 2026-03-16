@@ -1620,7 +1620,7 @@ router.get("/voted-but-not-picked/:groupId", optionalAuth, async (req, res) => {
       include: [
         {
           model: MovieSelection,
-          as: "movieSelections", // Add the association alias
+          as: "movieSelections",
           attributes: [
             "tmdbMovieId",
             "title",
@@ -1628,34 +1628,44 @@ router.get("/voted-but-not-picked/:groupId", optionalAuth, async (req, res) => {
             "releaseDate",
             "voteAverage",
             "overview",
+            "isWinner", // ← must include isWinner now (no where filter)
           ],
-          where: { isWinner: false },
-          required: false, // Don't require selections
+          required: false,
         },
       ],
-      order: [["date", "DESC"]], // Use 'date' not 'eventDate'
+      order: [["date", "DESC"]],
     });
 
-    // Flatten and deduplicate movies
+    // Pass 1: collect all tmdbMovieIds that have ever WON
+    const watchedMovieIds = new Set();
+    movieMondays.forEach((monday) => {
+      monday.movieSelections.forEach((selection) => {
+        if (selection.isWinner) {
+          watchedMovieIds.add(selection.tmdbMovieId);
+        }
+      });
+    });
+
+    // Pass 2: collect losers, skipping any that were later watched
     const allLosingMovies = [];
     const seenMovieIds = new Set();
 
     movieMondays.forEach((monday) => {
-  monday.movieSelections.forEach((selection) => {
-    if (watchedMovieIds.has(selection.tmdbMovieId)) return;
-    
-    if (!seenMovieIds.has(selection.tmdbMovieId)) {
-      seenMovieIds.add(selection.tmdbMovieId);
-      allLosingMovies.push({
-        tmdbMovieId: selection.tmdbMovieId,
-        title: selection.title,
-        posterPath: selection.posterPath,
-        releaseDate: selection.releaseDate,
-        voteAverage: selection.voteAverage,
-        overview: selection.overview,
-        lastVotedDate: monday.date,  
-      });
-        }
+      monday.movieSelections.forEach((selection) => {
+        if (selection.isWinner) return; // skip winners
+        if (watchedMovieIds.has(selection.tmdbMovieId)) return; // skip if ever watched
+        if (seenMovieIds.has(selection.tmdbMovieId)) return; // skip duplicates
+
+        seenMovieIds.add(selection.tmdbMovieId);
+        allLosingMovies.push({
+          tmdbMovieId: selection.tmdbMovieId,
+          title: selection.title,
+          posterPath: selection.posterPath,
+          releaseDate: selection.releaseDate,
+          voteAverage: selection.voteAverage,
+          overview: selection.overview,
+          lastVotedDate: monday.date, // ← correct field name
+        });
       });
     });
 
