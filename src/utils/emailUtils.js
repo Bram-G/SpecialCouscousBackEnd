@@ -328,8 +328,94 @@ const sendPasswordResetEmail = async (user, host) => {
   return transporter.sendMail(mailOptions);
 };
 
+const sendGroupInviteEmail = async ({ toEmail, inviterName, groupName, inviteLink }) => {
+  const mailOptions = {
+    to: toEmail,
+    from: process.env.EMAIL_USERNAME,
+    subject: `🎬 You've been invited to join ${groupName} on Movie Monday`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>You're Invited to Movie Monday</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #f4f4f4; font-family: Arial, sans-serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+ 
+                  <!-- Header -->
+                  <tr>
+                    <td style="background-color: #18181b; padding: 32px; text-align: center;">
+                      <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 700; letter-spacing: -0.5px;">
+                        🍿 Movie Monday
+                      </h1>
+                    </td>
+                  </tr>
+ 
+                  <!-- Body -->
+                  <tr>
+                    <td style="padding: 40px 40px 32px;">
+                      <h2 style="margin: 0 0 16px; color: #18181b; font-size: 22px;">You're invited!</h2>
+                      <p style="margin: 0 0 12px; color: #444; font-size: 16px; line-height: 1.6;">
+                        <strong>${inviterName}</strong> has invited you to join <strong>${groupName}</strong> on Movie Monday — a place to track, vote, and reminisce about your group's movie nights.
+                      </p>
+                      <p style="margin: 0 0 32px; color: #666; font-size: 15px; line-height: 1.6;">
+                        Click the button below to create your account and join the group. The invite link expires in 7 days.
+                      </p>
+ 
+                      <!-- CTA Button -->
+                      <table cellpadding="0" cellspacing="0" width="100%">
+                        <tr>
+                          <td align="center">
+                            <a
+                              href="${inviteLink}"
+                              style="display: inline-block; background-color: #006FEE; color: #ffffff; font-size: 16px; font-weight: 600; text-decoration: none; padding: 14px 32px; border-radius: 8px;"
+                            >
+                              Join ${groupName}
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+ 
+                      <p style="margin: 28px 0 0; color: #999; font-size: 13px; text-align: center;">
+                        Or copy this link into your browser:<br>
+                        <span style="color: #006FEE; word-break: break-all;">${inviteLink}</span>
+                      </p>
+                    </td>
+                  </tr>
+ 
+                  <!-- Footer -->
+                  <tr>
+                    <td style="background-color: #f8f9fa; padding: 24px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                      <p style="margin: 0; color: #999; font-size: 13px;">
+                        If you weren't expecting this invite, you can safely ignore this email.
+                      </p>
+                      <p style="margin: 8px 0 0; color: #999; font-size: 13px;">
+                        Happy watching! 🎬 — The Movie Monday Team
+                      </p>
+                    </td>
+                  </tr>
+ 
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `,
+  };
+ 
+  const info = await transporter.sendMail(mailOptions);
+  return info;
+};
+
 module.exports = {
   generateToken,
   sendVerificationEmail,
   sendPasswordResetEmail,
+  sendGroupInviteEmail
 };

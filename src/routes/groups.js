@@ -4,6 +4,7 @@ const auth = require("../middleware/auth");
 const { User, Group, GroupInvite } = require("../models");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = process.env;
+const { sendGroupInviteEmail } = require("../utils/emailUtils");
 
 // Get user's group
 router.get("/users/group", auth, async (req, res) => {
@@ -166,7 +167,7 @@ router.post("/groups/:groupId/invite-link", auth, async (req, res) => {
         groupName: group.name,
       },
       JWT_SECRET,
-      { expiresIn: "7d" }
+      { expiresIn: "7d" },
     );
 
     res.json({
@@ -178,10 +179,56 @@ router.post("/groups/:groupId/invite-link", auth, async (req, res) => {
     res.status(500).json({ error: "Failed to generate invite link" });
   }
 });
+router.post("/groups/:groupId/invite-email", auth, async (req, res) => {
+  try {
+    const { groupId } = req.params;
+    const { email, inviteLink } = req.body;
+
+    if (!email || !inviteLink) {
+      return res
+        .status(400)
+        .json({ error: "Email and invite link are required" });
+    }
+
+    // Verify the requesting user is a member of the group
+    const group = await Group.findOne({
+      where: { id: groupId },
+      include: [
+        {
+          model: User,
+          where: { id: req.user.id },
+        },
+      ],
+    });
+
+    if (!group) {
+      return res
+        .status(403)
+        .json({ error: "Not authorized to invite to this group" });
+    }
+
+    // Get the inviting user's username
+    const inviter = await User.findByPk(req.user.id, {
+      attributes: ["username"],
+    });
+
+    await sendGroupInviteEmail({
+      toEmail: email,
+      inviterName: inviter.username,
+      groupName: group.name,
+      inviteLink,
+    });
+
+    res.json({ message: "Invite email sent successfully" });
+  } catch (error) {
+    console.error("Error sending invite email:", error);
+    res.status(500).json({ error: "Failed to send invite email" });
+  }
+});
 
 // Verify and join group via invite link
 // Get group info from invite token
-router.get("/groups/join/:inviteToken", auth, async (req, res) => {
+router.get("/groups/join/:inviteToken", async (req, res) => {
   try {
     const { inviteToken } = req.params;
 
