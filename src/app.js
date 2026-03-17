@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+const adminRoutes = require('./routes/admin')
 require('dotenv').config();
 
 const app = express();
@@ -56,6 +57,8 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: 'Too many requests from this IP, please try again after 15 minutes'
 });
+
+app.use('/api/admin', adminRoutes);
 
 app.use('/auth/forgot-password', authLimiter);
 app.use('/auth/resend-verification', authLimiter);
