@@ -22,7 +22,7 @@ router.get('/export', auth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    // Load the user with their groups and group members
+    // Load user + groups + group members (no MovieMondays here — no association defined that direction)
     const userWithGroups = await User.findByPk(userId, {
       include: [
         {
@@ -42,7 +42,7 @@ router.get('/export', auth, async (req, res) => {
       return val;
     };
 
-    // Build each group, querying MovieMondays separately via GroupId
+    // Query MovieMondays per group (MovieMonday.belongsTo(Group) — not the reverse)
     const groups = await Promise.all(
       userWithGroups.Groups.map(async (group) => {
         const movieMondays = await MovieMonday.findAll({
@@ -56,7 +56,7 @@ router.get('/export', auth, async (req, res) => {
             {
               model: MovieMondayEventDetails,
               as: 'eventDetails',
-              attributes: ['cocktails', 'meals', 'desserts'],
+              attributes: ['cocktails', 'meals', 'desserts'], // notes column does not exist in DB
             },
             { model: User, as: 'picker', attributes: ['username'] },
           ],
@@ -95,7 +95,6 @@ router.get('/export', auth, async (req, res) => {
       })
     );
 
-    // Collect unique users across all groups
     const allUsers = new Map();
     userWithGroups.Groups.forEach((g) =>
       g.Users.forEach((u) => {
@@ -103,7 +102,6 @@ router.get('/export', auth, async (req, res) => {
       })
     );
 
-    // Watchlists
     const watchlistCategories = await WatchlistCategory.findAll({
       where: { userId },
       include: [
@@ -149,6 +147,30 @@ router.get('/export', auth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/admin/import
+//
+// Designed to be called in chunks from the frontend to avoid Heroku's 30s
+// request timeout. The frontend slices movieMondays into batches and calls
+// this endpoint once per batch.
+//
+// Body shape:
+//   {
+//     exportVersion: string,
+//     isChunk: boolean,        // true for all calls after the first
+//     chunkIndex: number,      // 0-based, used for logging only
+//     users:      [...],       // only sent on chunkIndex === 0
+//     watchlists: [...],       // only sent on chunkIndex === 0
+//     groups: [
+//       {
+//         name, description, isPublic, slug,
+//         members: [...],      // only needed on chunkIndex === 0
+//         movieMondays: [...], // the slice for this chunk
+//       }
+//     ]
+//   }
+//
+// The endpoint is fully idempotent — safe to call multiple times for the
+// same data. Users and groups are created on the first chunk and reused on
+// subsequent chunks via findOrCreate / findOne.
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/import', auth, async (req, res) => {
   const results = {
@@ -163,45 +185,60 @@ router.post('/import', auth, async (req, res) => {
   };
 
   try {
-    const { exportVersion, users, groups, watchlists } = req.body;
+    const { exportVersion, isChunk, chunkIndex = 0, users, groups, watchlists } = req.body;
 
     if (!exportVersion || !groups) {
-      return res.status(400).json({ message: 'Invalid import file format — missing exportVersion or groups' });
-    }
-
-    const userMap = new Map();
-
-    for (const userData of (users || [])) {
-      try {
-        let user = await User.findOne({ where: { username: userData.username } });
-        if (!user) user = await User.findOne({ where: { email: userData.email } });
-        if (!user) {
-          const hashedPassword = await bcrypt.hash('ChangeMe123!', 10);
-          user = await User.create({ username: userData.username, email: userData.email, password: hashedPassword, isVerified: true });
-          results.users.created++;
-        } else {
-          results.users.existing++;
-        }
-        userMap.set(userData.username, user);
-      } catch (err) {
-        results.errors.push(`User "${userData.username}": ${err.message}`);
-      }
+      return res.status(400).json({ message: 'Invalid import payload — missing exportVersion or groups' });
     }
 
     const authUser = await User.findByPk(req.user.id);
-    if (authUser && !userMap.has(authUser.username)) userMap.set(authUser.username, authUser);
+    const userMap  = new Map();
 
+    // ── Users — only process on first chunk ───────────────────────────────
+    if (!isChunk || chunkIndex === 0) {
+      for (const userData of (users || [])) {
+        try {
+          let user = await User.findOne({ where: { username: userData.username } });
+          if (!user) user = await User.findOne({ where: { email: userData.email } });
+          if (!user) {
+            const hashed = await bcrypt.hash('ChangeMe123!', 10);
+            user = await User.create({ username: userData.username, email: userData.email, password: hashed, isVerified: true });
+            results.users.created++;
+          } else {
+            results.users.existing++;
+          }
+          userMap.set(userData.username, user);
+        } catch (err) {
+          results.errors.push(`User "${userData.username}": ${err.message}`);
+        }
+      }
+    }
+
+    // Always make sure the authenticated user is in the map
+    if (authUser && !userMap.has(authUser.username)) {
+      userMap.set(authUser.username, authUser);
+    }
+
+    // Helper: resolve a username to a User — checks map first, then DB
+    const resolveUser = async (username) => {
+      if (!username) return authUser;
+      if (userMap.has(username)) return userMap.get(username);
+      const u = await User.findOne({ where: { username } });
+      if (u) { userMap.set(username, u); return u; }
+      return authUser;
+    };
+
+    // ── Groups & MovieMondays ─────────────────────────────────────────────
     for (const groupData of groups) {
       try {
         let group = await Group.findOne({ where: { name: groupData.name } });
 
         if (!group) {
-          const ownerUsername = groupData.members && groupData.members[0];
-          const ownerUser = (ownerUsername && userMap.get(ownerUsername)) || authUser;
-          const baseSlug = groupData.slug || groupData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-          let finalSlug = baseSlug;
-          let slugCounter = 1;
-          while (await Group.findOne({ where: { slug: finalSlug } })) finalSlug = `${baseSlug}-${slugCounter++}`;
+          const ownerUser = await resolveUser(groupData.members && groupData.members[0]);
+          const baseSlug  = groupData.slug || groupData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+          let   finalSlug = baseSlug;
+          let   counter   = 1;
+          while (await Group.findOne({ where: { slug: finalSlug } })) finalSlug = `${baseSlug}-${counter++}`;
 
           group = await Group.create({
             name: groupData.name,
@@ -215,15 +252,17 @@ router.post('/import', auth, async (req, res) => {
           results.groups.updated++;
         }
 
+        // Add members — only meaningful on first chunk but harmless to repeat
         for (const memberUsername of groupData.members || []) {
-          const memberUser = userMap.get(memberUsername);
+          const memberUser = await resolveUser(memberUsername);
           if (memberUser) { try { await group.addUser(memberUser.id); } catch { /* already member */ } }
         }
 
+        // ── MovieMondays (this chunk's slice) ────────────────────────────
         for (const mmData of groupData.movieMondays || []) {
           try {
-            const pickerUser = (mmData.picker && userMap.get(mmData.picker)) || authUser;
-            const baseSlug = `${group.slug || group.id}-${mmData.date}`;
+            const pickerUser = await resolveUser(mmData.picker);
+            const baseSlug   = `${group.slug || group.id}-${mmData.date}`;
 
             const [movieMonday, mmCreated] = await MovieMonday.findOrCreate({
               where: { date: mmData.date, GroupId: group.id },
@@ -240,28 +279,29 @@ router.post('/import', auth, async (req, res) => {
             if (!mmCreated) {
               await movieMonday.update({
                 pickerUserId: pickerUser.id,
-                status: mmData.status || movieMonday.status,
-                isPublic: mmData.isPublic !== undefined ? mmData.isPublic : movieMonday.isPublic,
-                weekTheme: mmData.weekTheme !== undefined ? mmData.weekTheme : movieMonday.weekTheme,
-                slug: movieMonday.slug || baseSlug,
+                status:       mmData.status    || movieMonday.status,
+                isPublic:     mmData.isPublic  !== undefined ? mmData.isPublic  : movieMonday.isPublic,
+                weekTheme:    mmData.weekTheme !== undefined ? mmData.weekTheme : movieMonday.weekTheme,
+                slug:         movieMonday.slug || baseSlug,
               });
               results.movieMondays.updated++;
             } else {
               results.movieMondays.created++;
             }
 
+            // Always refresh movie selections
             await MovieSelection.destroy({ where: { movieMondayId: movieMonday.id } });
 
             for (const msData of mmData.movieSelections || []) {
               try {
                 await MovieSelection.create({
                   movieMondayId: movieMonday.id,
-                  tmdbMovieId: msData.tmdbMovieId,
-                  title: msData.title,
-                  posterPath: msData.posterPath || null,
-                  isWinner: msData.isWinner || false,
-                  genres: msData.genres || [],
-                  releaseYear: msData.releaseYear || null,
+                  tmdbMovieId:   msData.tmdbMovieId,
+                  title:         msData.title,
+                  posterPath:    msData.posterPath  || null,
+                  isWinner:      msData.isWinner    || false,
+                  genres:        msData.genres      || [],
+                  releaseYear:   msData.releaseYear || null,
                 });
                 results.movieSelections.created++;
               } catch (msErr) {
@@ -269,16 +309,20 @@ router.post('/import', auth, async (req, res) => {
               }
             }
 
+            // Event details
             if (mmData.eventDetails) {
-              const ed = mmData.eventDetails;
-              const hasData = (ed.cocktails && ed.cocktails.length > 0) || (ed.meals && ed.meals.length > 0) || (ed.desserts && ed.desserts.length > 0) || ed.notes;
+              const ed      = mmData.eventDetails;
+              const hasData = (ed.cocktails && ed.cocktails.length > 0)
+                           || (ed.meals     && ed.meals.length     > 0)
+                           || (ed.desserts  && ed.desserts.length  > 0);
+
               if (hasData) {
                 const [eventDetails, edCreated] = await MovieMondayEventDetails.findOrCreate({
-                  where: { movieMondayId: movieMonday.id },
-                  defaults: { movieMondayId: movieMonday.id, cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || []},
+                  where:    { movieMondayId: movieMonday.id },
+                  defaults: { movieMondayId: movieMonday.id, cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || [] },
                 });
                 if (!edCreated) {
-                  await eventDetails.update({ cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || []  });
+                  await eventDetails.update({ cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || [] });
                   results.eventDetails.updated++;
                 } else {
                   results.eventDetails.created++;
@@ -294,45 +338,49 @@ router.post('/import', auth, async (req, res) => {
       }
     }
 
-    for (const wlData of watchlists || []) {
-      try {
-        const ownerUser = (wlData.ownerUsername && userMap.get(wlData.ownerUsername)) || authUser;
-        const baseSlug = wlData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-        const [category, wlCreated] = await WatchlistCategory.findOrCreate({
-          where: { name: wlData.name, userId: ownerUser.id },
-          defaults: { name: wlData.name, description: wlData.description || null, isPublic: wlData.isPublic || false, userId: ownerUser.id, slug: baseSlug },
-        });
-        wlCreated ? results.watchlists.created++ : results.watchlists.updated++;
+    // ── Watchlists — only process on first chunk ───────────────────────────
+    if (!isChunk || chunkIndex === 0) {
+      for (const wlData of watchlists || []) {
+        try {
+          const ownerUser = await resolveUser(wlData.ownerUsername);
+          const baseSlug  = wlData.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-        for (const itemData of wlData.items || []) {
-          try {
-            const existing = await WatchlistItem.findOne({ where: { categoryId: category.id, tmdbMovieId: itemData.tmdbMovieId } });
-            if (!existing) {
-              await WatchlistItem.create({
-                categoryId: category.id,
-                tmdbMovieId: itemData.tmdbMovieId,
-                title: itemData.title,
-                posterPath: itemData.posterPath || null,
-                sortOrder: itemData.sortOrder || 0,
-                userNote: itemData.userNote || null,
-                userRating: itemData.userRating || null,
-                watched: itemData.watched || false,
-                watchedDate: itemData.watchedDate || null,
-              });
-              results.watchlistItems.created++;
-            } else {
-              results.watchlistItems.skipped++;
+          const [category, wlCreated] = await WatchlistCategory.findOrCreate({
+            where:    { name: wlData.name, userId: ownerUser.id },
+            defaults: { name: wlData.name, description: wlData.description || null, isPublic: wlData.isPublic || false, userId: ownerUser.id, slug: baseSlug },
+          });
+          wlCreated ? results.watchlists.created++ : results.watchlists.updated++;
+
+          for (const itemData of wlData.items || []) {
+            try {
+              const existing = await WatchlistItem.findOne({ where: { categoryId: category.id, tmdbMovieId: itemData.tmdbMovieId } });
+              if (!existing) {
+                await WatchlistItem.create({
+                  categoryId:  category.id,
+                  tmdbMovieId: itemData.tmdbMovieId,
+                  title:       itemData.title,
+                  posterPath:  itemData.posterPath  || null,
+                  sortOrder:   itemData.sortOrder   || 0,
+                  userNote:    itemData.userNote    || null,
+                  userRating:  itemData.userRating  || null,
+                  watched:     itemData.watched     || false,
+                  watchedDate: itemData.watchedDate || null,
+                });
+                results.watchlistItems.created++;
+              } else {
+                results.watchlistItems.skipped++;
+              }
+            } catch (itemErr) {
+              results.errors.push(`WatchlistItem "${itemData.title}": ${itemErr.message}`);
             }
-          } catch (itemErr) {
-            results.errors.push(`WatchlistItem "${itemData.title}": ${itemErr.message}`);
           }
+        } catch (wlErr) {
+          results.errors.push(`Watchlist "${wlData.name}": ${wlErr.message}`);
         }
-      } catch (wlErr) {
-        results.errors.push(`Watchlist "${wlData.name}": ${wlErr.message}`);
       }
     }
 
-    res.json({ success: true, message: 'Import completed', results });
+    res.json({ success: true, message: 'Chunk imported', chunkIndex, results });
   } catch (error) {
     console.error('Import error:', error);
     res.status(500).json({ success: false, message: 'Import failed', error: error.message, results });
@@ -341,7 +389,6 @@ router.post('/import', auth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/admin/enrich-status
-// How many MovieSelections across the user's groups are missing cast/crew data.
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/enrich-status', auth, async (req, res) => {
   try {
@@ -350,20 +397,16 @@ router.get('/enrich-status', auth, async (req, res) => {
     });
     const userGroupIds = (userWithGroups.Groups || []).map((g) => g.id);
 
-    if (!userGroupIds.length) {
-      return res.json({ total: 0, missing: 0, enriched: 0 });
-    }
+    if (!userGroupIds.length) return res.json({ total: 0, missing: 0, enriched: 0 });
 
     const allSelections = await MovieSelection.findAll({
       attributes: ['id'],
-      include: [
-        {
-          model: MovieMonday,
-          attributes: [],
-          where: { GroupId: { [Op.in]: userGroupIds } },
-          required: true,
-        },
-      ],
+      include: [{
+        model: MovieMonday,
+        attributes: [],
+        where: { GroupId: { [Op.in]: userGroupIds } },
+        required: true,
+      }],
       raw: true,
     });
 
@@ -371,7 +414,6 @@ router.get('/enrich-status', auth, async (req, res) => {
     if (total === 0) return res.json({ total: 0, missing: 0, enriched: 0 });
 
     const allIds = allSelections.map((s) => s.id);
-
     const enrichedRows = await MovieCast.findAll({
       attributes: ['movieSelectionId'],
       where: { movieSelectionId: { [Op.in]: allIds } },
@@ -389,11 +431,8 @@ router.get('/enrich-status', auth, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/admin/enrich-tmdb
-// Fetch cast & crew from TMDB for one batch of un-enriched MovieSelections.
-// Call repeatedly from the frontend (incrementing offset) until done === true.
-//
-// Body:    { offset?: number, batchSize?: number }
-// Returns: { total, offset, batchSize, enriched, failed, done, nextOffset, errors }
+// Process one batch of un-enriched MovieSelections. Call repeatedly until done.
+// Body: { offset?: number, batchSize?: number }
 // ─────────────────────────────────────────────────────────────────────────────
 router.post('/enrich-tmdb', auth, async (req, res) => {
   const clampedBatchSize = Math.min(Math.max(parseInt(req.body.batchSize) || 15, 1), 25);
@@ -413,17 +452,14 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
       return res.json({ total: 0, offset: 0, batchSize: clampedBatchSize, enriched: 0, failed: 0, done: true, nextOffset: 0, errors: [] });
     }
 
-    // All selections for this user's groups
     const allSelections = await MovieSelection.findAll({
       attributes: ['id', 'tmdbMovieId', 'title'],
-      include: [
-        {
-          model: MovieMonday,
-          attributes: [],
-          where: { GroupId: { [Op.in]: userGroupIds } },
-          required: true,
-        },
-      ],
+      include: [{
+        model: MovieMonday,
+        attributes: [],
+        where: { GroupId: { [Op.in]: userGroupIds } },
+        required: true,
+      }],
       raw: true,
     });
 
@@ -432,8 +468,6 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
     }
 
     const allIds = allSelections.map((s) => s.id);
-
-    // Which already have cast entries?
     const alreadyEnrichedRows = await MovieCast.findAll({
       attributes: ['movieSelectionId'],
       where: { movieSelectionId: { [Op.in]: allIds } },
@@ -449,8 +483,8 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
       return res.json({ total, offset: clampedOffset, batchSize: clampedBatchSize, enriched: 0, failed: 0, done: true, nextOffset: total, errors: [] });
     }
 
-    const batch = needsEnrichment.slice(clampedOffset, clampedOffset + clampedBatchSize);
-    const TMDB_API_KEY = process.env.TMDB_API_KEY;
+    const batch          = needsEnrichment.slice(clampedOffset, clampedOffset + clampedBatchSize);
+    const TMDB_API_KEY   = process.env.TMDB_API_KEY;
 
     for (const selection of batch) {
       try {
@@ -460,30 +494,27 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
           continue;
         }
 
-        const url = `https://api.themoviedb.org/3/movie/${selection.tmdbMovieId}?api_key=${TMDB_API_KEY}&append_to_response=credits`;
+        const url     = `https://api.themoviedb.org/3/movie/${selection.tmdbMovieId}?api_key=${TMDB_API_KEY}&append_to_response=credits`;
         const tmdbRes = await fetch(url);
 
         if (!tmdbRes.ok) {
           failedCount++;
-          batchErrors.push(`"${selection.title}" — TMDB responded ${tmdbRes.status}`);
+          batchErrors.push(`"${selection.title}" — TMDB ${tmdbRes.status}`);
           continue;
         }
 
         const tmdbData = await tmdbRes.json();
 
-        // Clear any stale / partial data
         await MovieCast.destroy({ where: { movieSelectionId: selection.id } });
         await MovieCrew.destroy({ where: { movieSelectionId: selection.id } });
 
-        // Opportunistically refresh genres + releaseYear
         if (tmdbData.genres || tmdbData.release_date) {
           const updates = {};
-          if (tmdbData.genres)      updates.genres      = tmdbData.genres.map((g) => g.name);
+          if (tmdbData.genres)       updates.genres      = tmdbData.genres.map((g) => g.name);
           if (tmdbData.release_date) updates.releaseYear = parseInt(tmdbData.release_date.split('-')[0]);
           await MovieSelection.update(updates, { where: { id: selection.id } });
         }
 
-        // Cast — top 10 billed actors
         if (tmdbData.credits?.cast) {
           for (const actor of tmdbData.credits.cast.slice(0, 10)) {
             try {
@@ -491,7 +522,7 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
                 movieSelectionId: selection.id,
                 actorId:     actor.id,
                 name:        actor.name,
-                character:   actor.character   || null,
+                character:   actor.character    || null,
                 profilePath: actor.profile_path || null,
                 order:       actor.order        || null,
               });
@@ -499,7 +530,6 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
           }
         }
 
-        // Crew — Directors and Writers only
         if (tmdbData.credits?.crew) {
           const importantJobs = ['Director', 'Screenplay', 'Writer'];
           const keyCrew = tmdbData.credits.crew
@@ -535,7 +565,7 @@ router.post('/enrich-tmdb', auth, async (req, res) => {
     }
 
     const nextOffset = clampedOffset + clampedBatchSize;
-    const done = nextOffset >= total;
+    const done       = nextOffset >= total;
 
     res.json({
       total,
