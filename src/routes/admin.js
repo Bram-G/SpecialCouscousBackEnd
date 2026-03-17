@@ -22,35 +22,19 @@ router.get('/export', auth, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    const user = await User.findByPk(userId, {
+    // Load the user with their groups and group members
+    const userWithGroups = await User.findByPk(userId, {
       include: [
         {
           model: Group,
           include: [
             { model: User, attributes: ['id', 'username', 'email'] },
-            {
-              model: MovieMonday,
-              include: [
-                {
-                  model: MovieSelection,
-                  as: 'movieSelections',
-                  attributes: ['tmdbMovieId', 'title', 'posterPath', 'isWinner', 'genres', 'releaseYear'],
-                },
-                {
-                  model: MovieMondayEventDetails,
-                  as: 'eventDetails',
-                  attributes: ['cocktails', 'meals', 'desserts', 'notes'],
-                },
-                { model: User, as: 'picker', attributes: ['username'] },
-              ],
-              order: [['date', 'ASC']],
-            },
           ],
         },
       ],
     });
 
-    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (!userWithGroups) return res.status(404).json({ message: 'User not found' });
 
     const safeParse = (val) => {
       if (!val) return [];
@@ -58,44 +42,69 @@ router.get('/export', auth, async (req, res) => {
       return val;
     };
 
-    const groups = user.Groups.map((group) => ({
-      name: group.name,
-      description: group.description,
-      isPublic: group.isPublic,
-      slug: group.slug,
-      members: group.Users.map((u) => u.username),
-      movieMondays: (group.MovieMondays || []).map((mm) => ({
-        date: mm.date,
-        picker: mm.picker ? mm.picker.username : null,
-        status: mm.status,
-        isPublic: mm.isPublic,
-        weekTheme: mm.weekTheme,
-        movieSelections: (mm.movieSelections || []).map((ms) => ({
-          tmdbMovieId: ms.tmdbMovieId,
-          title: ms.title,
-          posterPath: ms.posterPath,
-          isWinner: ms.isWinner,
-          genres: safeParse(ms.genres),
-          releaseYear: ms.releaseYear,
-        })),
-        eventDetails: mm.eventDetails
-          ? {
-              cocktails: safeParse(mm.eventDetails.cocktails),
-              meals: safeParse(mm.eventDetails.meals),
-              desserts: safeParse(mm.eventDetails.desserts),
-              notes: mm.eventDetails.notes || '',
-            }
-          : null,
-      })),
-    }));
+    // Build each group, querying MovieMondays separately via GroupId
+    const groups = await Promise.all(
+      userWithGroups.Groups.map(async (group) => {
+        const movieMondays = await MovieMonday.findAll({
+          where: { GroupId: group.id },
+          include: [
+            {
+              model: MovieSelection,
+              as: 'movieSelections',
+              attributes: ['tmdbMovieId', 'title', 'posterPath', 'isWinner', 'genres', 'releaseYear'],
+            },
+            {
+              model: MovieMondayEventDetails,
+              as: 'eventDetails',
+              attributes: ['cocktails', 'meals', 'desserts', 'notes'],
+            },
+            { model: User, as: 'picker', attributes: ['username'] },
+          ],
+          order: [['date', 'ASC']],
+        });
 
+        return {
+          name: group.name,
+          description: group.description,
+          isPublic: group.isPublic,
+          slug: group.slug,
+          members: group.Users.map((u) => u.username),
+          movieMondays: movieMondays.map((mm) => ({
+            date: mm.date,
+            picker: mm.picker ? mm.picker.username : null,
+            status: mm.status,
+            isPublic: mm.isPublic,
+            weekTheme: mm.weekTheme,
+            movieSelections: (mm.movieSelections || []).map((ms) => ({
+              tmdbMovieId: ms.tmdbMovieId,
+              title: ms.title,
+              posterPath: ms.posterPath,
+              isWinner: ms.isWinner,
+              genres: safeParse(ms.genres),
+              releaseYear: ms.releaseYear,
+            })),
+            eventDetails: mm.eventDetails
+              ? {
+                  cocktails: safeParse(mm.eventDetails.cocktails),
+                  meals: safeParse(mm.eventDetails.meals),
+                  desserts: safeParse(mm.eventDetails.desserts),
+                  notes: mm.eventDetails.notes || '',
+                }
+              : null,
+          })),
+        };
+      })
+    );
+
+    // Collect unique users across all groups
     const allUsers = new Map();
-    user.Groups.forEach((g) =>
+    userWithGroups.Groups.forEach((g) =>
       g.Users.forEach((u) => {
         if (!allUsers.has(u.username)) allUsers.set(u.username, { username: u.username, email: u.email });
       })
     );
 
+    // Watchlists
     const watchlistCategories = await WatchlistCategory.findAll({
       where: { userId },
       include: [
@@ -109,7 +118,7 @@ router.get('/export', auth, async (req, res) => {
     });
 
     const watchlists = watchlistCategories.map((wl) => ({
-      ownerUsername: user.username,
+      ownerUsername: userWithGroups.username,
       name: wl.name,
       description: wl.description,
       isPublic: wl.isPublic,
@@ -128,7 +137,7 @@ router.get('/export', auth, async (req, res) => {
     res.json({
       exportVersion: '1.0',
       exportedAt: new Date().toISOString(),
-      exportedBy: user.username,
+      exportedBy: userWithGroups.username,
       users: Array.from(allUsers.values()),
       groups,
       watchlists,
