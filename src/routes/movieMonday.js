@@ -26,6 +26,10 @@ const optionalAuth = require("../middleware/optionalAuth");
 const invalidateStatsCache = () => {
   statsCache.del(STATS_CACHE_KEY);
 };
+const toTitleCase = (str) => {
+  if (!str || typeof str !== "string") return str;
+  return str.toLowerCase().replace(/(?:^|\s)\S/g, (char) => char.toUpperCase());
+};
 
 const recalculateStats = async () => {
   try {
@@ -1013,7 +1017,7 @@ router.get("/cocktails", authMiddleware, async (req, res) => {
             cocktail !== "[]" &&
             cocktail !== "[ ]"
           ) {
-            allCocktails.add(cocktail.trim());
+            allCocktails.add(toTitleCase(cocktail.trim()));
           }
         });
       }
@@ -1080,7 +1084,7 @@ router.get("/meals", authMiddleware, async (req, res) => {
             meal !== "[]" &&
             meal !== "[ ]"
           ) {
-            allMeals.add(meal.trim());
+            allMeals.add(toTitleCase(meal.trim()));
           }
         });
       }
@@ -1149,7 +1153,7 @@ router.get("/desserts", authMiddleware, async (req, res) => {
             dessert !== "[]" &&
             dessert !== "[ ]"
           ) {
-            allDesserts.add(dessert.trim());
+            allDesserts.add(toTitleCase(dessert.trim()));
           }
         });
       }
@@ -1829,44 +1833,23 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
       });
     }
 
-    const cleanCocktails = Array.isArray(cocktails)
-      ? cocktails
-          .filter(
-            (c) =>
-              c &&
-              typeof c === "string" &&
-              c.trim() &&
-              c !== "[]" &&
-              c !== "[ ]",
-          )
-          .map((c) => c.trim())
-      : [];
+   const cleanMeals = Array.isArray(meals)
+  ? meals
+      .filter((m) => m && typeof m === "string" && m.trim() && m !== "[]" && m !== "[ ]")
+      .map((m) => toTitleCase(m.trim()))
+  : [];
 
-    const cleanMeals = Array.isArray(meals)
-      ? meals
-          .filter(
-            (m) =>
-              m &&
-              typeof m === "string" &&
-              m.trim() &&
-              m !== "[]" &&
-              m !== "[ ]",
-          )
-          .map((m) => m.trim())
-      : [];
+const cleanCocktails = Array.isArray(cocktails)
+  ? cocktails
+      .filter((c) => c && typeof c === "string" && c.trim() && c !== "[]" && c !== "[ ]")
+      .map((c) => toTitleCase(c.trim()))
+  : [];
 
-    const cleanDesserts = Array.isArray(desserts)
-      ? desserts
-          .filter(
-            (d) =>
-              d &&
-              typeof d === "string" &&
-              d.trim() &&
-              d !== "[]" &&
-              d !== "[ ]",
-          )
-          .map((d) => d.trim())
-      : [];
+const cleanDesserts = Array.isArray(desserts)
+  ? desserts
+      .filter((d) => d && typeof d === "string" && d.trim() && d !== "[]" && d !== "[ ]")
+      .map((d) => toTitleCase(d.trim()))
+  : [];
 
     const cleanNotes = notes && typeof notes === "string" ? notes.trim() : "";
 
@@ -1886,7 +1869,7 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
         meals: cleanMeals,
         desserts: cleanDesserts,
         cocktails: cleanCocktails,
-        notes: cleanNotes || eventDetails.notes,
+        notes: cleanNotes,
       });
     }
 
