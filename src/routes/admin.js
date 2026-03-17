@@ -56,7 +56,7 @@ router.get('/export', auth, async (req, res) => {
             {
               model: MovieMondayEventDetails,
               as: 'eventDetails',
-              attributes: ['cocktails', 'meals', 'desserts', 'notes'],
+              attributes: ['cocktails', 'meals', 'desserts'],
             },
             { model: User, as: 'picker', attributes: ['username'] },
           ],
@@ -88,7 +88,6 @@ router.get('/export', auth, async (req, res) => {
                   cocktails: safeParse(mm.eventDetails.cocktails),
                   meals: safeParse(mm.eventDetails.meals),
                   desserts: safeParse(mm.eventDetails.desserts),
-                  notes: mm.eventDetails.notes || '',
                 }
               : null,
           })),
@@ -276,10 +275,10 @@ router.post('/import', auth, async (req, res) => {
               if (hasData) {
                 const [eventDetails, edCreated] = await MovieMondayEventDetails.findOrCreate({
                   where: { movieMondayId: movieMonday.id },
-                  defaults: { movieMondayId: movieMonday.id, cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || [], notes: ed.notes || '' },
+                  defaults: { movieMondayId: movieMonday.id, cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || []},
                 });
                 if (!edCreated) {
-                  await eventDetails.update({ cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || [], notes: ed.notes || '' });
+                  await eventDetails.update({ cocktails: ed.cocktails || [], meals: ed.meals || [], desserts: ed.desserts || []  });
                   results.eventDetails.updated++;
                 } else {
                   results.eventDetails.created++;
