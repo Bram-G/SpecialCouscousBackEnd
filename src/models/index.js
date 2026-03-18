@@ -838,21 +838,55 @@ const MovieMondayLike = sequelize.define(
     ],
   },
 );
-const UserReview = sequelize.define("UserReview", {
-  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
-  userId: { type: DataTypes.INTEGER, allowNull: false },
-  tmdbMovieId: { type: DataTypes.INTEGER, allowNull: false },
-  movieTitle: { type: DataTypes.STRING, allowNull: false },
-  posterPath: { type: DataTypes.STRING, allowNull: true },
-  rating: { type: DataTypes.INTEGER, allowNull: false },
-  reviewText: { type: DataTypes.TEXT, allowNull: true },
-  isPublic: { type: DataTypes.BOOLEAN, defaultValue: true, allowNull: false },
-  containsSpoilers: { type: DataTypes.BOOLEAN, defaultValue: false, allowNull: false },
-}, {
-  tableName: "UserReviews",
-  timestamps: true,
-  indexes: [{ unique: true, fields: ['userId', 'tmdbMovieId'], name: 'unique_user_movie_review' }],
-});
+
+const UserFollow = sequelize.define(
+  "UserFollow",
+  {
+    followerId: { type: DataTypes.INTEGER, allowNull: false },
+    followingId: { type: DataTypes.INTEGER, allowNull: false },
+  },
+  {
+    tableName: "UserFollows",
+    timestamps: true,
+    updatedAt: false,
+    indexes: [
+      {
+        unique: true,
+        fields: ["followerId", "followingId"],
+        name: "unique_follow",
+      },
+    ],
+  },
+);
+const UserReview = sequelize.define(
+  "UserReview",
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    userId: { type: DataTypes.INTEGER, allowNull: false },
+    tmdbMovieId: { type: DataTypes.INTEGER, allowNull: false },
+    movieTitle: { type: DataTypes.STRING, allowNull: false },
+    posterPath: { type: DataTypes.STRING, allowNull: true },
+    rating: { type: DataTypes.INTEGER, allowNull: false },
+    reviewText: { type: DataTypes.TEXT, allowNull: true },
+    isPublic: { type: DataTypes.BOOLEAN, defaultValue: true, allowNull: false },
+    containsSpoilers: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+  },
+  {
+    tableName: "UserReviews",
+    timestamps: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ["userId", "tmdbMovieId"],
+        name: "unique_user_movie_review",
+      },
+    ],
+  },
+);
 
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
@@ -1018,9 +1052,13 @@ CommentReport.belongsTo(User, {
   foreignKey: "resolvedByUserId",
   as: "resolver",
 });
+User.hasMany(UserFollow, { foreignKey: 'followerId', as: 'followingRelations' });
+User.hasMany(UserFollow, { foreignKey: 'followingId', as: 'followerRelations' });
+UserFollow.belongsTo(User, { foreignKey: 'followerId', as: 'followerUser' });
+UserFollow.belongsTo(User, { foreignKey: 'followingId', as: 'followedUser' });
 
-User.hasMany(UserReview, { foreignKey: 'userId', as: 'reviews' });
-UserReview.belongsTo(User, { foreignKey: 'userId', as: 'reviewer' });
+User.hasMany(UserReview, { foreignKey: "userId", as: "reviews" });
+UserReview.belongsTo(User, { foreignKey: "userId", as: "reviewer" });
 
 MovieMonday.hasMany(MovieMondayLike, { foreignKey: "movieMondayId" });
 MovieMondayLike.belongsTo(MovieMonday, { foreignKey: "movieMondayId" });
@@ -1046,4 +1084,5 @@ module.exports = {
   CommentVote,
   CommentReport,
   UserReview,
+  UserFollow,
 };
