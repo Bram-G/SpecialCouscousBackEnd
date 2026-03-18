@@ -1,9 +1,8 @@
-const express = require('express');
-const cors = require('cors');
-const cookieParser = require('cookie-parser');
-const rateLimit = require('express-rate-limit');
-const adminRoutes = require('./routes/admin')
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const cookieParser = require("cookie-parser");
+const rateLimit = require("express-rate-limit");
+require("dotenv").config();
 
 const app = express();
 
@@ -11,43 +10,46 @@ const app = express();
 app.use(express.json());
 app.use(cookieParser());
 
-app.get('/setup-database', async (req, res) => {
+app.get("/setup-database", async (req, res) => {
   try {
-    console.log('Starting database setup...');
-    
-    // Import your models to trigger table creation
-    const { sequelize } = require('./models');
-    
-    // This will create all tables based on your models
+    console.log("Starting database setup...");
+
+    // Import models to trigger table creation
+    const { sequelize } = require("./models");
+
+    // This will create all tables based on models
     await sequelize.sync({ force: true });
-    
-    console.log('Database tables created successfully!');
-    res.json({ 
-      success: true, 
-      message: 'Database tables created successfully! You can now run your import script.' 
+
+    console.log("Database tables created successfully!");
+    res.json({
+      success: true,
+      message:
+        "Database tables created successfully! You can now run your import script.",
     });
   } catch (error) {
-    console.error('Database setup error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message 
+    console.error("Database setup error:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
     });
   }
 });
 
-app.use(cors({
-  origin: [
-    'http://localhost:3000',
-    'https://movie-monday-beta.vercel.app',
-    'https://www.moviemonday.app',
-    'https://movie-monday-rd5dji6cr-brams-projects-69a61965.vercel.app',
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  exposedHeaders: ['set-cookie']
-}));
+app.use(
+  cors({
+    origin: [
+      "http://localhost:3000",
+      "https://movie-monday-beta.vercel.app",
+      "https://www.moviemonday.app",
+      "https://movie-monday-rd5dji6cr-brams-projects-69a61965.vercel.app",
+      process.env.FRONTEND_URL,
+    ].filter(Boolean),
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: true,
+    exposedHeaders: ["set-cookie"],
+  }),
+);
 
 // Rate limiting
 const authLimiter = rateLimit({
@@ -55,38 +57,39 @@ const authLimiter = rateLimit({
   max: 5, // Limit each IP to 5 requests per 15 minutes
   standardHeaders: true,
   legacyHeaders: false,
-  message: 'Too many requests from this IP, please try again after 15 minutes'
+  message: "Too many requests from this IP, please try again after 15 minutes",
 });
 
-app.use('/api/admin', adminRoutes);
-
-app.use('/auth/forgot-password', authLimiter);
-app.use('/auth/resend-verification', authLimiter);
-app.use('/auth/register', authLimiter);
+app.use("/auth/forgot-password", authLimiter);
+app.use("/auth/resend-verification", authLimiter);
+app.use("/auth/register", authLimiter);
 
 // Import routes
-const authRoutes = require('./routes/auth');
-const movieMondayRoutes = require('./routes/movieMonday');
-const groupsRouter = require('./routes/groups');
-const watchlistRoutes = require('./routes/watchlists');
-const commentRoutes = require('./routes/comments'); // NEW: Import comment routes
+const authRoutes = require("./routes/auth");
+const movieMondayRoutes = require("./routes/movieMonday");
+const groupsRouter = require("./routes/groups");
+const watchlistRoutes = require("./routes/watchlists");
+const commentRoutes = require("./routes/comments");
+const userRoutes = require("./routes/users");
+const reviewRoutes = require("./routes/reviews"); 
 
 // Mount routes
-app.use('/auth', authRoutes);
-app.use('/api/movie-monday', movieMondayRoutes);
-app.use('/api', groupsRouter);
-app.use('/api/watchlists', watchlistRoutes);
-app.use('/api/comments', commentRoutes); // NEW: Mount comment routes at /api/comments
+app.use("/auth", authRoutes);
+app.use("/api/movie-monday", movieMondayRoutes);
+app.use("/api", groupsRouter);
+app.use("/api/watchlists", watchlistRoutes);
+app.use("/api/comments", commentRoutes);
+app.use("/api/users", userRoutes); 
+app.use("/api/reviews", reviewRoutes); 
 
-// Error handling middleware - should be after routes
+// Error handling middleware 
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ message: 'Something went wrong!' });
+  res.status(500).json({ message: "Something went wrong!" });
 });
 
-// 404 handler - should be after routes but before error handler
 app.use((req, res) => {
-  res.status(404).json({ message: 'Route not found' });
+  res.status(404).json({ message: "Route not found" });
 });
 
 const PORT = process.env.PORT || 8000;

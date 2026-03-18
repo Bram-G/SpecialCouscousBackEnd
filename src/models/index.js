@@ -35,6 +35,19 @@ const User = sequelize.define("User", {
       len: [6, 100],
     },
   },
+  bio: {
+    type: DataTypes.TEXT,
+    allowNull: true,
+  },
+  displayName: {
+    type: DataTypes.STRING(50),
+    allowNull: true,
+  },
+  avatarColor: {
+    type: DataTypes.STRING(20),
+    allowNull: true,
+    defaultValue: "#5E35B1",
+  },
   isVerified: {
     type: DataTypes.BOOLEAN,
     defaultValue: false,
@@ -57,44 +70,47 @@ const User = sequelize.define("User", {
   },
 });
 
-const Group = sequelize.define("Group", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
+const Group = sequelize.define(
+  "Group",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    name: {
+      type: DataTypes.STRING(100),
+      allowNull: false,
+    },
+    createdById: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    // ADD THESE NEW FIELDS:
+    isPublic: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    slug: {
+      type: DataTypes.STRING(100),
+      allowNull: true,
+      unique: true,
+    },
+    description: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
+    coverImagePath: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+    },
   },
-  name: {
-    type: DataTypes.STRING(100),
-    allowNull: false,
+  {
+    tableName: "Groups",
+    timestamps: true,
   },
-  createdById: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-  },
-  // ADD THESE NEW FIELDS:
-  isPublic: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: false,
-  },
-  slug: {
-    type: DataTypes.STRING(100),
-    allowNull: true,
-    unique: true,
-  },
-  description: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-  },
-  coverImagePath: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-  },
-}, {
-  tableName: "Groups",
-  timestamps: true,
-});
-
+);
 
 const Movie = sequelize.define("Movie", {
   id: {
@@ -147,7 +163,7 @@ const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
               typeof item === "string" &&
               item.trim() !== "" &&
               item !== "[]" &&
-              item !== "[ ]"
+              item !== "[ ]",
           );
         }
 
@@ -211,7 +227,7 @@ const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
               typeof item === "string" &&
               item.trim() !== "" &&
               item !== "[]" &&
-              item !== "[ ]"
+              item !== "[ ]",
           );
         }
         if (parsed && typeof parsed === "string" && parsed.trim()) {
@@ -269,7 +285,7 @@ const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
               typeof item === "string" &&
               item.trim() !== "" &&
               item !== "[]" &&
-              item !== "[ ]"
+              item !== "[ ]",
           );
         }
         if (parsed && typeof parsed === "string" && parsed.trim()) {
@@ -311,53 +327,56 @@ const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
   },
 });
 
-const MovieMonday = sequelize.define("MovieMonday", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
+const MovieMonday = sequelize.define(
+  "MovieMonday",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    date: {
+      type: DataTypes.DATEONLY,
+      allowNull: false,
+    },
+    pickerUserId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    GroupId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+    },
+    status: {
+      type: DataTypes.ENUM("pending", "in-progress", "completed"),
+      defaultValue: "pending",
+    },
+    // ADD THESE NEW FIELDS:
+    isPublic: {
+      type: DataTypes.BOOLEAN,
+      defaultValue: false,
+      allowNull: false,
+    },
+    slug: {
+      type: DataTypes.STRING(150),
+      allowNull: true,
+      unique: true,
+    },
+    weekTheme: {
+      type: DataTypes.STRING(255),
+      allowNull: true,
+    },
+    likesCount: {
+      type: DataTypes.INTEGER,
+      defaultValue: 0,
+      allowNull: false,
+    },
   },
-  date: {
-    type: DataTypes.DATEONLY,
-    allowNull: false,
+  {
+    tableName: "MovieMondays",
+    timestamps: true,
   },
-  pickerUserId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-  },
-  GroupId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-  },
-  status: {
-    type: DataTypes.ENUM("pending", "in-progress", "completed"),
-    defaultValue: "pending",
-  },
-  // ADD THESE NEW FIELDS:
-  isPublic: {
-    type: DataTypes.BOOLEAN,
-    defaultValue: false,
-    allowNull: false,
-  },
-  slug: {
-    type: DataTypes.STRING(150),
-    allowNull: true,
-    unique: true,
-  },
-  weekTheme: {
-    type: DataTypes.STRING(255),
-    allowNull: true,
-  },
-  likesCount: {
-    type: DataTypes.INTEGER,
-    defaultValue: 0,
-    allowNull: false,
-  },
-}, {
-  tableName: "MovieMondays",
-  timestamps: true,
-});
-
+);
 
 const MovieSelection = sequelize.define(
   "MovieSelection",
@@ -419,7 +438,7 @@ const MovieSelection = sequelize.define(
   {
     tableName: "MovieSelections",
     timestamps: true,
-  }
+  },
 );
 
 const MovieCast = sequelize.define(
@@ -457,7 +476,7 @@ const MovieCast = sequelize.define(
   },
   {
     tableName: "MovieCast",
-  }
+  },
 );
 
 const MovieCrew = sequelize.define(
@@ -495,7 +514,7 @@ const MovieCrew = sequelize.define(
   },
   {
     tableName: "MovieCrew",
-  }
+  },
 );
 const CommentSection = sequelize.define(
   "CommentSection",
@@ -546,7 +565,7 @@ const CommentSection = sequelize.define(
         fields: ["contentId"], // Fast lookup by content ID
       },
     ],
-  }
+  },
 );
 
 // 2. Comment Model - Supports threaded/nested comments (Reddit-style)
@@ -661,7 +680,7 @@ const Comment = sequelize.define(
         fields: ["commentSectionId", "parentCommentId"], // Composite for top-level comments
       },
     ],
-  }
+  },
 );
 
 // 3. CommentVote Model - Handles upvotes/downvotes
@@ -711,7 +730,7 @@ const CommentVote = sequelize.define(
         fields: ["userId"], // Fast lookup for user's votes
       },
     ],
-  }
+  },
 );
 
 // 4. CommentReport Model - For moderation (future-proofing)
@@ -779,41 +798,60 @@ const CommentReport = sequelize.define(
         fields: ["isResolved"],
       },
     ],
-  }
+  },
 );
-const MovieMondayLike = sequelize.define("MovieMondayLike", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  movieMondayId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "MovieMondays",
-      key: "id",
+const MovieMondayLike = sequelize.define(
+  "MovieMondayLike",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    movieMondayId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "MovieMondays",
+        key: "id",
+      },
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
     },
   },
-  userId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "Users",
-      key: "id",
-    },
+  {
+    tableName: "MovieMondayLikes",
+    timestamps: true,
+    updatedAt: false,
+    indexes: [
+      {
+        unique: true,
+        fields: ["movieMondayId", "userId"],
+        name: "unique_user_moviemonday_like",
+      },
+    ],
   },
+);
+const UserReview = sequelize.define("UserReview", {
+  id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+  userId: { type: DataTypes.INTEGER, allowNull: false },
+  tmdbMovieId: { type: DataTypes.INTEGER, allowNull: false },
+  movieTitle: { type: DataTypes.STRING, allowNull: false },
+  posterPath: { type: DataTypes.STRING, allowNull: true },
+  rating: { type: DataTypes.INTEGER, allowNull: false },
+  reviewText: { type: DataTypes.TEXT, allowNull: true },
+  isPublic: { type: DataTypes.BOOLEAN, defaultValue: true, allowNull: false },
+  containsSpoilers: { type: DataTypes.BOOLEAN, defaultValue: false, allowNull: false },
 }, {
-  tableName: "MovieMondayLikes",
+  tableName: "UserReviews",
   timestamps: true,
-  updatedAt: false,
-  indexes: [
-    {
-      unique: true,
-      fields: ['movieMondayId', 'userId'],
-      name: 'unique_user_moviemonday_like'
-    }
-  ]
+  indexes: [{ unique: true, fields: ['userId', 'tmdbMovieId'], name: 'unique_user_movie_review' }],
 });
 
 // Group-User many-to-many relationship
@@ -980,10 +1018,14 @@ CommentReport.belongsTo(User, {
   foreignKey: "resolvedByUserId",
   as: "resolver",
 });
-MovieMonday.hasMany(MovieMondayLike, { foreignKey: 'movieMondayId' });
-MovieMondayLike.belongsTo(MovieMonday, { foreignKey: 'movieMondayId' });
-User.hasMany(MovieMondayLike, { foreignKey: 'userId' });
-MovieMondayLike.belongsTo(User, { foreignKey: 'userId' });
+
+User.hasMany(UserReview, { foreignKey: 'userId', as: 'reviews' });
+UserReview.belongsTo(User, { foreignKey: 'userId', as: 'reviewer' });
+
+MovieMonday.hasMany(MovieMondayLike, { foreignKey: "movieMondayId" });
+MovieMondayLike.belongsTo(MovieMonday, { foreignKey: "movieMondayId" });
+User.hasMany(MovieMondayLike, { foreignKey: "userId" });
+MovieMondayLike.belongsTo(User, { foreignKey: "userId" });
 
 module.exports = {
   MovieMonday,
@@ -1003,4 +1045,5 @@ module.exports = {
   Comment,
   CommentVote,
   CommentReport,
+  UserReview,
 };
