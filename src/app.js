@@ -72,6 +72,7 @@ const watchlistRoutes = require("./routes/watchlists");
 const commentRoutes = require("./routes/comments");
 const userRoutes = require("./routes/users");
 const reviewRoutes = require("./routes/reviews"); 
+const adminRoutes = require("./routes/admin");
 
 // Mount routes
 app.use("/auth", authRoutes);
@@ -81,6 +82,7 @@ app.use("/api/watchlists", watchlistRoutes);
 app.use("/api/comments", commentRoutes);
 app.use("/api/users", userRoutes); 
 app.use("/api/reviews", reviewRoutes); 
+app.use("/api/admin", adminRoutes);
 
 // Error handling middleware 
 app.use((err, req, res, next) => {
