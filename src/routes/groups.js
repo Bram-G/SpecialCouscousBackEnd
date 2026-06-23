@@ -10,23 +10,15 @@ const { sendGroupInviteEmail } = require("../utils/emailUtils");
 router.get("/users/group", auth, async (req, res) => {
   try {
     const user = req.user;
-    // console.log('User from auth middleware:', user);
     const userWithGroup = await User.findOne({
       where: { id: user.id },
       include: [
         {
           model: Group,
-          include: [
-            {
-              model: User,
-              attributes: ["id", "username", "email"],
-            },
-          ],
+          include: [{ model: User, attributes: ["id", "username", "email"] }],
         },
       ],
     });
-
-    // console.log('User with group:', userWithGroup);
 
     if (!userWithGroup?.Groups?.length) {
       return res.json(null);
@@ -39,6 +31,9 @@ router.get("/users/group", auth, async (req, res) => {
       createdById: group.createdById,
       members: group.Users,
       createdAt: group.createdAt,
+      isPublic: group.isPublic,
+      slug: group.slug,
+      description: group.description,
     });
   } catch (error) {
     console.error("Error fetching user group:", error);
