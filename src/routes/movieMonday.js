@@ -4,11 +4,13 @@ const {
   MovieMonday,
   MovieSelection,
   User,
+  Group,
   WatchlistCategory,
   WatchlistItem,
   MovieMondayEventDetails,
   MovieCast,
   MovieCrew,
+  MovieMondayLike,
   sequelize,
   Statistic,
 } = require("../models");
