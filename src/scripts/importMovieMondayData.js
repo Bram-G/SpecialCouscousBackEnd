@@ -287,7 +287,7 @@ async function processCSVData(csvData) {
       const weekTheme = shouldHaveTheme ? weekThemes[Math.floor(Math.random() * weekThemes.length)] : null;
       
       // Make most Movie Mondays public (about 80%)
-      const isPublic = Math.random() < 0.8;
+      const isPublic = true;
       
       // Create or update the MovieMonday
       const [movieMonday, created] = await MovieMonday.findOrCreate({

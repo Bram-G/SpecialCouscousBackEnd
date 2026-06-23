@@ -1530,6 +1530,86 @@ router.post("/discovery-status", optionalAuth, async (req, res) => {
   }
 });
 
+router.post("/actor-watched-status", authMiddleware, async (req, res) => {
+  try {
+    const { tmdbMovieIds } = req.body;
+
+    if (!Array.isArray(tmdbMovieIds) || tmdbMovieIds.length === 0) {
+      return res.json({ watchedMovies: {} });
+    }
+
+    // Normalize to a unique list of valid integers
+    const movieIds = [
+      ...new Set(
+        tmdbMovieIds
+          .map((id) => parseInt(id, 10))
+          .filter((id) => !Number.isNaN(id)),
+      ),
+    ];
+
+    const userGroupIds = req.userGroups.map((group) => group.id);
+
+    if (userGroupIds.length === 0 || movieIds.length === 0) {
+      return res.json({ watchedMovies: {} });
+    }
+
+    // Single JOIN with an inner-join filter on matching movie IDs. `required: true`
+    // drops any Movie Monday that has no matching selection, so we only pull rows
+    // we actually care about.
+    const movieMondays = await MovieMonday.findAll({
+      where: { GroupId: userGroupIds },
+      attributes: ["id", "date"],
+      include: [
+        {
+          model: MovieSelection,
+          as: "movieSelections",
+          attributes: ["tmdbMovieId", "title", "posterPath", "isWinner"],
+          where: { tmdbMovieId: { [Op.in]: movieIds } },
+          required: true,
+        },
+      ],
+    });
+
+    // Collapse into a map keyed by tmdbMovieId (a movie can appear across multiple
+    // Movie Mondays, so we aggregate appearances / winner status / dates).
+    const watchedMovies = {};
+
+    movieMondays.forEach((mm) => {
+      const plain = mm.get({ plain: true });
+
+      plain.movieSelections.forEach((selection) => {
+        const key = selection.tmdbMovieId;
+
+        if (!watchedMovies[key]) {
+          watchedMovies[key] = {
+            tmdbMovieId: selection.tmdbMovieId,
+            title: selection.title,
+            posterPath: selection.posterPath,
+            isWinner: false,
+            appearances: 0,
+            dates: [],
+          };
+        }
+
+        watchedMovies[key].appearances += 1;
+        if (selection.isWinner) {
+          watchedMovies[key].isWinner = true;
+        }
+        if (plain.date) {
+          watchedMovies[key].dates.push(plain.date);
+        }
+      });
+    });
+
+    res.json({ watchedMovies });
+  } catch (error) {
+    console.error("Error fetching actor watched status:", error);
+    res
+      .status(500)
+      .json({ error: "Failed to fetch watched status", watchedMovies: {} });
+  }
+});
+
 // GET /api/movie-monday/group-recommendations/:groupId
 // Get movie recommendations based on group's viewing and voting history
 router.get(
@@ -1833,23 +1913,44 @@ router.post("/:id/event-details", authMiddleware, async (req, res) => {
       });
     }
 
-   const cleanMeals = Array.isArray(meals)
-  ? meals
-      .filter((m) => m && typeof m === "string" && m.trim() && m !== "[]" && m !== "[ ]")
-      .map((m) => toTitleCase(m.trim()))
-  : [];
+    const cleanMeals = Array.isArray(meals)
+      ? meals
+          .filter(
+            (m) =>
+              m &&
+              typeof m === "string" &&
+              m.trim() &&
+              m !== "[]" &&
+              m !== "[ ]",
+          )
+          .map((m) => toTitleCase(m.trim()))
+      : [];
 
-const cleanCocktails = Array.isArray(cocktails)
-  ? cocktails
-      .filter((c) => c && typeof c === "string" && c.trim() && c !== "[]" && c !== "[ ]")
-      .map((c) => toTitleCase(c.trim()))
-  : [];
+    const cleanCocktails = Array.isArray(cocktails)
+      ? cocktails
+          .filter(
+            (c) =>
+              c &&
+              typeof c === "string" &&
+              c.trim() &&
+              c !== "[]" &&
+              c !== "[ ]",
+          )
+          .map((c) => toTitleCase(c.trim()))
+      : [];
 
-const cleanDesserts = Array.isArray(desserts)
-  ? desserts
-      .filter((d) => d && typeof d === "string" && d.trim() && d !== "[]" && d !== "[ ]")
-      .map((d) => toTitleCase(d.trim()))
-  : [];
+    const cleanDesserts = Array.isArray(desserts)
+      ? desserts
+          .filter(
+            (d) =>
+              d &&
+              typeof d === "string" &&
+              d.trim() &&
+              d !== "[]" &&
+              d !== "[ ]",
+          )
+          .map((d) => toTitleCase(d.trim()))
+      : [];
 
     const cleanNotes = notes && typeof notes === "string" ? notes.trim() : "";
 
@@ -2058,21 +2159,14 @@ router.get("/public/:slug", async (req, res) => {
     const { slug } = req.params;
 
     const movieMonday = await MovieMonday.findOne({
-      where: {
-        slug,
-        isPublic: true, // Only public entries
-      },
+      where: { slug }, // no per-Monday gate; group include enforces public
       include: [
         {
           model: Group,
           attributes: ["id", "name", "slug", "isPublic"],
-          where: { isPublic: true }, // Ensure group is also public
+          where: { isPublic: true }, // INNER JOIN: only if group is public
         },
-        {
-          model: User,
-          as: "picker",
-          attributes: ["id", "username"],
-        },
+        { model: User, as: "picker", attributes: ["id", "username"] },
         {
           model: MovieSelection,
           as: "movieSelections",
@@ -2089,10 +2183,7 @@ router.get("/public/:slug", async (req, res) => {
             },
           ],
         },
-        {
-          model: MovieMondayEventDetails,
-          as: "eventDetails",
-        },
+        { model: MovieMondayEventDetails, as: "eventDetails" },
       ],
     });
 
@@ -2100,14 +2191,8 @@ router.get("/public/:slug", async (req, res) => {
       return res.status(404).json({ message: "Movie Monday not found" });
     }
 
-    // Get stats
     const stats = await generateMovieMondayStats(movieMonday);
-
-    res.json({
-      movieMonday,
-      stats,
-      group: movieMonday.Group,
-    });
+    res.json({ movieMonday, stats, group: movieMonday.Group });
   } catch (error) {
     console.error("Error fetching public Movie Monday:", error);
     res.status(500).json({ message: "Failed to fetch Movie Monday" });
@@ -2155,6 +2240,43 @@ router.get("/group/:groupId", authMiddleware, async (req, res) => {
     res.status(500).json({ error: "Failed to fetch Movie Mondays" });
   }
 });
+// GET lightweight calendar data for a public group (all Mondays, minimal fields)
+router.get("/browse/group/:groupSlug/calendar", async (req, res) => {
+  try {
+    const { groupSlug } = req.params;
+
+    const group = await Group.findOne({
+      where: { slug: groupSlug, isPublic: true },
+      attributes: ["id", "name", "slug"],
+    });
+
+    if (!group) {
+      return res.status(404).json({ message: "Group not found" });
+    }
+
+    const movieMondays = await MovieMonday.findAll({
+      where: { GroupId: group.id },
+      attributes: ["id", "date", "slug", "weekTheme", "status"],
+      include: [
+        {
+          model: MovieSelection,
+          as: "movieSelections",
+          attributes: ["id", "title", "posterPath", "isWinner"],
+        },
+      ],
+      order: [["date", "ASC"]],
+    });
+
+    res.json({
+      group: { id: group.id, name: group.name, slug: group.slug },
+      movieMondays,
+    });
+  } catch (error) {
+    console.error("Error fetching group calendar:", error);
+    res.status(500).json({ message: "Failed to fetch calendar" });
+  }
+});
+
 // GET all public movie mondays for a group
 // GET all public movie mondays for a group by slug
 router.get("/browse/group/:groupSlug", async (req, res) => {
@@ -2164,12 +2286,7 @@ router.get("/browse/group/:groupSlug", async (req, res) => {
 
     const group = await Group.findOne({
       where: { slug: groupSlug, isPublic: true },
-      include: [
-        {
-          model: User,
-          attributes: ["id", "username"],
-        },
-      ],
+      include: [{ model: User, attributes: ["id", "username"] }],
     });
 
     if (!group) {
@@ -2177,56 +2294,33 @@ router.get("/browse/group/:groupSlug", async (req, res) => {
     }
 
     const movieMondays = await MovieMonday.findAndCountAll({
-      where: {
-        GroupId: group.id,
-        isPublic: true,
-      },
+      where: { GroupId: group.id }, // group gates visibility now
       include: [
-        {
-          model: User,
-          as: "picker",
-          attributes: ["id", "username"],
-        },
+        { model: User, as: "picker", attributes: ["id", "username"] },
         {
           model: MovieSelection,
           as: "movieSelections",
           attributes: ["id", "tmdbMovieId", "title", "posterPath", "isWinner"],
         },
-        {
-          model: MovieMondayEventDetails,
-          as: "eventDetails",
-        },
+        { model: MovieMondayEventDetails, as: "eventDetails" },
       ],
       order: [["date", "DESC"]],
       limit: parseInt(limit),
       offset: (parseInt(page) - 1) * parseInt(limit),
     });
 
-    // Calculate group stats
     const allMovieMondays = await MovieMonday.findAll({
-      where: {
-        GroupId: group.id,
-        isPublic: true,
-      },
+      where: { GroupId: group.id },
       include: [
         {
           model: MovieSelection,
           as: "movieSelections",
           include: [
-            {
-              model: MovieCast,
-              as: "cast",
-            },
-            {
-              model: MovieCrew,
-              as: "crew",
-            },
+            { model: MovieCast, as: "cast" },
+            { model: MovieCrew, as: "crew" },
           ],
         },
-        {
-          model: MovieMondayEventDetails,
-          as: "eventDetails",
-        },
+        { model: MovieMondayEventDetails, as: "eventDetails" },
       ],
     });
 
@@ -2294,46 +2388,26 @@ router.get("/browse/groups", async (req, res) => {
   try {
     const publicGroups = await Group.findAll({
       where: { isPublic: true },
-      include: [
-        {
-          model: User,
-          attributes: ["id", "username"],
-        },
-      ],
+      include: [{ model: User, attributes: ["id", "username"] }],
     });
 
-    // For each group, calculate stats
     const groupsWithStats = await Promise.all(
       publicGroups.map(async (group) => {
-        // Get all public movie mondays for this group
         const movieMondays = await MovieMonday.findAll({
-          where: {
-            GroupId: group.id,
-            isPublic: true,
-          },
+          where: { GroupId: group.id },
           include: [
             {
               model: MovieSelection,
               as: "movieSelections",
               include: [
-                {
-                  model: MovieCast,
-                  as: "cast",
-                },
-                {
-                  model: MovieCrew,
-                  as: "crew",
-                },
+                { model: MovieCast, as: "cast" },
+                { model: MovieCrew, as: "crew" },
               ],
             },
-            {
-              model: MovieMondayEventDetails,
-              as: "eventDetails",
-            },
+            { model: MovieMondayEventDetails, as: "eventDetails" },
           ],
         });
 
-        // Calculate stats
         const stats = calculateGroupStats(movieMondays, group);
 
         return {
@@ -2343,7 +2417,7 @@ router.get("/browse/groups", async (req, res) => {
           description: group.description,
           coverImagePath: group.coverImagePath,
           isPublic: group.isPublic,
-          likesCount: 0, // TODO: Add this when you create GroupLikes table
+          likesCount: 0,
           stats,
           owner: {
             id: group.createdById,
@@ -2367,95 +2441,98 @@ function calculateGroupStats(movieMondays, group) {
   const totalWeeks = movieMondays.length;
   const allMovies = movieMondays.flatMap((mm) => mm.movieSelections || []);
   const totalMovies = allMovies.length;
-
-  // Get member count
+  const totalWinners = allMovies.filter((m) => m.isWinner).length;
   const totalMembers = group.Users?.length || 0;
 
-  // Calculate genre stats
+  // Handles both real arrays and JSON-stringified arrays from the DB
+  const normalizeList = (value) => {
+    if (!value) return [];
+    if (Array.isArray(value)) return value;
+    if (typeof value === "string") {
+      try {
+        const parsed = JSON.parse(value);
+        return Array.isArray(parsed) ? parsed : [parsed];
+      } catch {
+        return value.trim() ? [value] : [];
+      }
+    }
+    return [];
+  };
+
+  // Genre stats
   const genreMap = new Map();
   allMovies.forEach((movie) => {
-    if (movie.genres && Array.isArray(movie.genres)) {
-      movie.genres.forEach((genre) => {
-        genreMap.set(genre, (genreMap.get(genre) || 0) + 1);
-      });
-    }
+    normalizeList(movie.genres).forEach((genre) =>
+      genreMap.set(genre, (genreMap.get(genre) || 0) + 1)
+    );
   });
+  const topGenre = Array.from(genreMap.entries()).sort((a, b) => b[1] - a[1])[0];
 
-  const topGenre = Array.from(genreMap.entries()).sort(
-    (a, b) => b[1] - a[1],
-  )[0];
-
-  // Calculate actor stats
+  // Actor stats
   const actorMap = new Map();
   allMovies.forEach((movie) => {
-    if (movie.cast) {
-      movie.cast.forEach((actor) => {
-        const key = `${actor.actorId}-${actor.name}`;
-        actorMap.set(key, (actorMap.get(key) || 0) + 1);
-      });
-    }
+    (movie.cast || []).forEach((actor) => {
+      const key = `${actor.actorId}-${actor.name}`;
+      actorMap.set(key, (actorMap.get(key) || 0) + 1);
+    });
   });
-
   const topActorEntry = Array.from(actorMap.entries()).sort(
-    (a, b) => b[1] - a[1],
+    (a, b) => b[1] - a[1]
   )[0];
   const topActor = topActorEntry
-    ? {
-        name: topActorEntry[0].split("-")[1],
-        count: topActorEntry[1],
-      }
+    ? { name: topActorEntry[0].split("-")[1], count: topActorEntry[1] }
     : null;
 
-  // Calculate meal/drink stats
+  // Meal / drink stats + running totals
   const drinkMap = new Map();
   const mealMap = new Map();
+  let totalCocktails = 0;
+  let totalMeals = 0;
+  let totalDesserts = 0;
 
   movieMondays.forEach((mm) => {
-    if (mm.eventDetails) {
-      // Cocktails
-      if (
-        mm.eventDetails.cocktails &&
-        Array.isArray(mm.eventDetails.cocktails)
-      ) {
-        mm.eventDetails.cocktails.forEach((drink) => {
-          drinkMap.set(drink, (drinkMap.get(drink) || 0) + 1);
-        });
-      }
-      // Meals
-      if (mm.eventDetails.meals && Array.isArray(mm.eventDetails.meals)) {
-        mm.eventDetails.meals.forEach((meal) => {
-          mealMap.set(meal, (mealMap.get(meal) || 0) + 1);
-        });
-      }
-    }
+    if (!mm.eventDetails) return;
+    const clean = (v) =>
+      normalizeList(v).filter((x) => typeof x === "string" && x.trim());
+
+    const cocktails = clean(mm.eventDetails.cocktails);
+    const meals = clean(mm.eventDetails.meals);
+    const desserts = clean(mm.eventDetails.desserts);
+
+    cocktails.forEach((d) => drinkMap.set(d, (drinkMap.get(d) || 0) + 1));
+    meals.forEach((m) => mealMap.set(m, (mealMap.get(m) || 0) + 1));
+
+    totalCocktails += cocktails.length;
+    totalMeals += meals.length;
+    totalDesserts += desserts.length;
   });
 
-  const topDrink = Array.from(drinkMap.entries()).sort(
-    (a, b) => b[1] - a[1],
-  )[0];
+  const topDrink = Array.from(drinkMap.entries()).sort((a, b) => b[1] - a[1])[0];
   const topMeal = Array.from(mealMap.entries()).sort((a, b) => b[1] - a[1])[0];
 
-  // Get recent posters (last 4-8 movies)
   const recentPosters = allMovies
     .filter((m) => m.posterPath)
     .slice(-8)
     .map((m) => m.posterPath)
     .reverse();
 
-  // Get earliest Movie Monday date
   const activeSince =
     movieMondays.length > 0
       ? movieMondays.reduce(
           (earliest, mm) =>
             new Date(mm.date) < new Date(earliest) ? mm.date : earliest,
-          movieMondays[0].date,
+          movieMondays[0].date
         )
       : new Date().toISOString();
 
   return {
     totalWeeks,
     totalMovies,
+    totalWinners,
     totalMembers,
+    totalMeals,
+    totalCocktails,
+    totalDesserts,
     topGenre: topGenre ? { name: topGenre[0], count: topGenre[1] } : null,
     topActor,
     signatureDrink: topDrink ? { name: topDrink[0], count: topDrink[1] } : null,
