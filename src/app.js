@@ -71,8 +71,9 @@ const groupsRouter = require("./routes/groups");
 const watchlistRoutes = require("./routes/watchlists");
 const commentRoutes = require("./routes/comments");
 const userRoutes = require("./routes/users");
-const reviewRoutes = require("./routes/reviews"); 
+const reviewRoutes = require("./routes/reviews");
 const adminRoutes = require("./routes/admin");
+const ratingRoutes = require("./routes/ratings");
 
 // Mount routes
 app.use("/auth", authRoutes);
@@ -80,11 +81,12 @@ app.use("/api/movie-monday", movieMondayRoutes);
 app.use("/api", groupsRouter);
 app.use("/api/watchlists", watchlistRoutes);
 app.use("/api/comments", commentRoutes);
-app.use("/api/users", userRoutes); 
-app.use("/api/reviews", reviewRoutes); 
+app.use("/api/users", userRoutes);
+app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
+app.use("/api/ratings", ratingRoutes);
 
-// Error handling middleware 
+// Error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(500).json({ message: "Something went wrong!" });

@@ -839,6 +839,52 @@ const MovieMondayLike = sequelize.define(
   },
 );
 
+
+const MovieMondayRating = sequelize.define(
+  "MovieMondayRating",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
+    },
+    movieMondayId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "MovieMondays",
+        key: "id",
+      },
+    },
+    userId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "Users",
+        key: "id",
+      },
+    },
+    rating: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      validate: { min: 1, max: 5 },
+    },
+  },
+  {
+    tableName: "MovieMondayRatings",
+    timestamps: true,
+    indexes: [
+      {
+        unique: true,
+        fields: ["movieMondayId", "userId"], // one rating per user per Monday
+        name: "unique_user_moviemonday_rating",
+      },
+      {
+        fields: ["movieMondayId"], // fast aggregate lookups
+      },
+    ],
+  },
+);
 const UserFollow = sequelize.define(
   "UserFollow",
   {
@@ -1065,6 +1111,11 @@ MovieMondayLike.belongsTo(MovieMonday, { foreignKey: "movieMondayId" });
 User.hasMany(MovieMondayLike, { foreignKey: "userId" });
 MovieMondayLike.belongsTo(User, { foreignKey: "userId" });
 
+MovieMonday.hasMany(MovieMondayRating, { foreignKey: "movieMondayId" });
+MovieMondayRating.belongsTo(MovieMonday, { foreignKey: "movieMondayId" });
+User.hasMany(MovieMondayRating, { foreignKey: "userId" });
+MovieMondayRating.belongsTo(User, { foreignKey: "userId" });
+
 module.exports = {
   MovieMonday,
   MovieSelection,
@@ -1085,4 +1136,5 @@ module.exports = {
   CommentReport,
   UserReview,
   UserFollow,
+  MovieMondayRating, 
 };
