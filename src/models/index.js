@@ -934,6 +934,20 @@ const UserReview = sequelize.define(
   },
 );
 
+// MovieMonday options:  { tableName: "MovieMondays", timestamps: true,
+  indexes: [{ fields: ["GroupId"] }, { fields: ["date"] }, { fields: ["pickerUserId"] }] }
+
+// MovieSelection options: { tableName: "MovieSelections", timestamps: true,
+  indexes: [{ fields: ["movieMondayId"] }, { fields: ["isWinner"] }, { fields: ["releaseYear"] }] }
+
+// MovieCast options: { tableName: "MovieCasts", timestamps: true,
+  indexes: [{ fields: ["movieSelectionId"] }, { fields: ["actorId"] }] }
+
+// MovieCrew options: { tableName: "MovieCrews", timestamps: true,
+  indexes: [{ fields: ["movieSelectionId"] }, { fields: ["personId"] }, { fields: ["job"] }] }
+
+// MovieMondayEventDetails options: add  indexes: [{ fields: ["movieMondayId"] }]
+
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
 Group.belongsToMany(User, { through: "GroupMembers" });

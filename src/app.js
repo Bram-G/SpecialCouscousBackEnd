@@ -63,7 +63,7 @@ const authLimiter = rateLimit({
 app.use("/auth/forgot-password", authLimiter);
 app.use("/auth/resend-verification", authLimiter);
 app.use("/auth/register", authLimiter);
-
+app.use("/api/analytics", require("./routes/analytics"));
 // Import routes
 const authRoutes = require("./routes/auth");
 const movieMondayRoutes = require("./routes/movieMonday");
