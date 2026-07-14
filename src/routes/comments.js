@@ -9,6 +9,8 @@ const {
   CommentReport,
   User,
   WatchlistCategory,
+  MovieMonday,
+  Group,
   sequelize,
 } = require("../models");
 const { Op } = require("sequelize");
@@ -38,6 +40,15 @@ const voteLimiter = rateLimit({
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
+
+const checkGroupMembership = async (userId, groupId) => {
+  if (!userId || !groupId) return false;
+
+  const group = await Group.findByPk(groupId);
+  if (!group) return false;
+
+  return await group.hasUser(userId);
+};
 
 // Validate that content exists and user has access
 const validateContentAccess = async (contentType, contentId, userId = null) => {
