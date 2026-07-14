@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
-const { User, Group, GroupInvite } = require("../models");
+const { User, Group, GroupInvite, MovieMonday } = require("../models");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = process.env;
 const { sendGroupInviteEmail } = require("../utils/emailUtils");
@@ -399,6 +399,19 @@ router.patch("/groups/:groupId/visibility", auth, async (req, res) => {
     if (coverImagePath !== undefined) group.coverImagePath = coverImagePath;
 
     await group.save();
+
+    // Backfill slugs for any Mondays in this group that don't have one yet,
+    // so every card on the public browse page is clickable right away.
+    if (isPublic) {
+      const mondaysNeedingSlugs = await MovieMonday.findAll({
+        where: { GroupId: group.id, slug: null },
+      });
+
+      for (const mm of mondaysNeedingSlugs) {
+        mm.slug = `${group.slug}-${mm.date}`;
+        await mm.save();
+      }
+    }
 
     res.json(group);
   } catch (error) {
