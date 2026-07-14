@@ -23,32 +23,30 @@ module.exports = (sequelize) => {
     timestamps: true
   });
 
-  // Method to increment a statistic
-  Statistic.increment = async function(key, amount = 1) {
+  // Single atomic UPSERT — no findOrCreate + separate increment + separate
+  // update race. Safe under concurrent hook calls from multiple requests.
+  Statistic.increment = async function (key, amount = 1) {
     try {
-      const [stat, created] = await this.findOrCreate({
-        where: { key },
-        defaults: { value: 0 }
-      });
-      
-      await stat.increment('value', { by: amount });
-      await stat.update({ lastUpdated: new Date() });
-      
-      return stat;
+      await sequelize.query(
+        `INSERT INTO "Statistics" (key, value, "lastUpdated", "createdAt", "updatedAt")
+         VALUES (:key, :amount, NOW(), NOW(), NOW())
+         ON CONFLICT (key)
+         DO UPDATE SET value = "Statistics".value + :amount,
+                        "lastUpdated" = NOW(),
+                        "updatedAt" = NOW()`,
+        { replacements: { key, amount } }
+      );
     } catch (error) {
-      console.error(`Error incrementing statistic ${key}:`, error);
-      throw error;
+      // Log and swallow — a stats miscount should never break the request
+      // that triggered it.
+      console.error(`Error incrementing statistic ${key}:`, error.message);
     }
   };
 
   // Method to retrieve multiple statistics
-  Statistic.getMultiple = async function(keys) {
+  Statistic.getMultiple = async function (keys) {
     try {
-      const stats = await this.findAll({
-        where: { key: keys }
-      });
-      
-      // Convert to a key-value object
+      const stats = await this.findAll({ where: { key: keys } });
       return stats.reduce((acc, stat) => {
         acc[stat.key] = stat.value;
         return acc;
@@ -60,33 +58,24 @@ module.exports = (sequelize) => {
   };
 
   // Method to recalculate statistics based on database data
-  Statistic.recalculateAll = async function(models) {
+  Statistic.recalculateAll = async function (models) {
     const t = await sequelize.transaction();
-    
+
     try {
-      // Count MovieMondays
       const totalMovieMondays = await models.MovieMonday.count({ transaction: t });
-      
-      // Get all event details
       const eventDetails = await models.MovieMondayEventDetails.findAll({ transaction: t });
-      
+
       let totalMealsShared = 0;
       let totalCocktailsConsumed = 0;
-      
-      // Process meals and cocktails
+
       eventDetails.forEach(event => {
-        // Process meals
         if (event.meals) {
           if (Array.isArray(event.meals)) {
             totalMealsShared += event.meals.length;
           } else if (typeof event.meals === 'string') {
             try {
               const parsed = JSON.parse(event.meals);
-              if (Array.isArray(parsed)) {
-                totalMealsShared += parsed.length;
-              } else if (parsed) {
-                totalMealsShared += 1;
-              }
+              totalMealsShared += Array.isArray(parsed) ? parsed.length : (parsed ? 1 : 0);
             } catch (e) {
               totalMealsShared += 1;
             }
@@ -94,19 +83,14 @@ module.exports = (sequelize) => {
             totalMealsShared += 1;
           }
         }
-        
-        // Process cocktails
+
         if (event.cocktails) {
           if (Array.isArray(event.cocktails)) {
             totalCocktailsConsumed += event.cocktails.length;
           } else if (typeof event.cocktails === 'string') {
             try {
               const parsed = JSON.parse(event.cocktails);
-              if (Array.isArray(parsed)) {
-                totalCocktailsConsumed += parsed.length;
-              } else if (parsed) {
-                totalCocktailsConsumed += 1;
-              }
+              totalCocktailsConsumed += Array.isArray(parsed) ? parsed.length : (parsed ? 1 : 0);
             } catch (e) {
               totalCocktailsConsumed += 1;
             }
@@ -115,33 +99,14 @@ module.exports = (sequelize) => {
           }
         }
       });
-      
-      // Update statistics
-      await this.upsert({ 
-        key: 'totalMovieMondays', 
-        value: totalMovieMondays,
-        lastUpdated: new Date()
-      }, { transaction: t });
-      
-      await this.upsert({ 
-        key: 'totalMealsShared', 
-        value: totalMealsShared,
-        lastUpdated: new Date()
-      }, { transaction: t });
-      
-      await this.upsert({ 
-        key: 'totalCocktailsConsumed', 
-        value: totalCocktailsConsumed,
-        lastUpdated: new Date()
-      }, { transaction: t });
-      
+
+      await this.upsert({ key: 'totalMovieMondays', value: totalMovieMondays, lastUpdated: new Date() }, { transaction: t });
+      await this.upsert({ key: 'totalMealsShared', value: totalMealsShared, lastUpdated: new Date() }, { transaction: t });
+      await this.upsert({ key: 'totalCocktailsConsumed', value: totalCocktailsConsumed, lastUpdated: new Date() }, { transaction: t });
+
       await t.commit();
-      
-      return {
-        totalMovieMondays,
-        totalMealsShared,
-        totalCocktailsConsumed
-      };
+
+      return { totalMovieMondays, totalMealsShared, totalCocktailsConsumed };
     } catch (error) {
       await t.rollback();
       console.error('Error recalculating statistics:', error);
