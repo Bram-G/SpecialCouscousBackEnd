@@ -219,11 +219,9 @@ router.post("/import", auth, async (req, res) => {
     } = req.body;
 
     if (!exportVersion || !groups) {
-      return res
-        .status(400)
-        .json({
-          message: "Invalid import payload — missing exportVersion or groups",
-        });
+      return res.status(400).json({
+        message: "Invalid import payload — missing exportVersion or groups",
+      });
     }
 
     const authUser = await User.findByPk(req.user.id);
@@ -351,22 +349,26 @@ router.post("/import", auth, async (req, res) => {
                 weekTheme: mmData.weekTheme || null,
                 slug: baseSlug,
               },
+              hooks: false,
             });
 
             if (!mmCreated) {
-              await movieMonday.update({
-                pickerUserId: pickerUser.id,
-                status: mmData.status || movieMonday.status,
-                isPublic:
-                  mmData.isPublic !== undefined
-                    ? mmData.isPublic
-                    : movieMonday.isPublic,
-                weekTheme:
-                  mmData.weekTheme !== undefined
-                    ? mmData.weekTheme
-                    : movieMonday.weekTheme,
-                slug: movieMonday.slug || baseSlug,
-              });
+              await movieMonday.update(
+                {
+                  pickerUserId: pickerUser.id,
+                  status: mmData.status || movieMonday.status,
+                  isPublic:
+                    mmData.isPublic !== undefined
+                      ? mmData.isPublic
+                      : movieMonday.isPublic,
+                  weekTheme:
+                    mmData.weekTheme !== undefined
+                      ? mmData.weekTheme
+                      : movieMonday.weekTheme,
+                  slug: movieMonday.slug || baseSlug,
+                },
+                { hooks: false },
+              );
               results.movieMondays.updated++;
             } else {
               results.movieMondays.created++;
@@ -414,13 +416,17 @@ router.post("/import", auth, async (req, res) => {
                       meals: ed.meals || [],
                       desserts: ed.desserts || [],
                     },
+                    hooks: false,
                   });
                 if (!edCreated) {
-                  await eventDetails.update({
-                    cocktails: ed.cocktails || [],
-                    meals: ed.meals || [],
-                    desserts: ed.desserts || [],
-                  });
+                  await eventDetails.update(
+                    {
+                      cocktails: ed.cocktails || [],
+                      meals: ed.meals || [],
+                      desserts: ed.desserts || [],
+                    },
+                    { hooks: false },
+                  );
                   results.eventDetails.updated++;
                 } else {
                   results.eventDetails.created++;
@@ -499,14 +505,12 @@ router.post("/import", auth, async (req, res) => {
     res.json({ success: true, message: "Chunk imported", chunkIndex, results });
   } catch (error) {
     console.error("Import error:", error);
-    res
-      .status(500)
-      .json({
-        success: false,
-        message: "Import failed",
-        error: error.message,
-        results,
-      });
+    res.status(500).json({
+      success: false,
+      message: "Import failed",
+      error: error.message,
+      results,
+    });
   }
 });
 
@@ -759,16 +763,27 @@ router.post("/enrich-tmdb", auth, async (req, res) => {
     });
   } catch (error) {
     console.error("Enrich TMDB error:", error);
-    res
-      .status(500)
-      .json({
-        message: "Enrichment batch failed",
-        error: error.message,
-        enriched: enrichedCount,
-        failed: failedCount,
-        done: false,
-        errors: batchErrors,
-      });
+    res.status(500).json({
+      message: "Enrichment batch failed",
+      error: error.message,
+      enriched: enrichedCount,
+      failed: failedCount,
+      done: false,
+      errors: batchErrors,
+    });
+  }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/admin/recalculate-stats
+// ─────────────────────────────────────────────────────────────────────────────
+router.post("/recalculate-stats", auth, async (req, res) => {
+  try {
+    const models = require("../models");
+    const result = await models.Statistic.recalculateAll(models);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    console.error("Recalculate stats error:", error);
+    res.status(500).json({ message: "Failed to recalculate statistics", error: error.message });
   }
 });
 
