@@ -109,7 +109,7 @@ const Group = sequelize.define(
   {
     tableName: "Groups",
     timestamps: true,
-  },
+  }
 );
 
 const Movie = sequelize.define("Movie", {
@@ -130,202 +130,209 @@ const Movie = sequelize.define("Movie", {
   description: DataTypes.TEXT,
 });
 
-const MovieMondayEventDetails = sequelize.define("MovieMondayEventDetails", {
-  id: {
-    type: DataTypes.INTEGER,
-    primaryKey: true,
-    autoIncrement: true,
-  },
-  movieMondayId: {
-    type: DataTypes.INTEGER,
-    allowNull: false,
-    references: {
-      model: "MovieMondays",
-      key: "id",
+const MovieMondayEventDetails = sequelize.define(
+  "MovieMondayEventDetails",
+  {
+    id: {
+      type: DataTypes.INTEGER,
+      primaryKey: true,
+      autoIncrement: true,
     },
-  },
-  cocktails: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const rawValue = this.getDataValue("cocktails");
-      if (!rawValue) return [];
+    movieMondayId: {
+      type: DataTypes.INTEGER,
+      allowNull: false,
+      references: {
+        model: "MovieMondays",
+        key: "id",
+      },
+    },
+    cocktails: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue("cocktails");
+        if (!rawValue) return [];
 
-      try {
-        // Parse JSON string to array
-        const parsed = JSON.parse(rawValue);
+        try {
+          // Parse JSON string to array
+          const parsed = JSON.parse(rawValue);
 
-        // Make sure it's an array and filter out any problematic values
-        if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (item) =>
-              item &&
-              typeof item === "string" &&
-              item.trim() !== "" &&
-              item !== "[]" &&
-              item !== "[ ]",
-          );
+          // Make sure it's an array and filter out any problematic values
+          if (Array.isArray(parsed)) {
+            return parsed.filter(
+              (item) =>
+                item &&
+                typeof item === "string" &&
+                item.trim() !== "" &&
+                item !== "[]" &&
+                item !== "[ ]"
+            );
+          }
+
+          // If not an array but valid content, return as single-item array
+          if (parsed && typeof parsed === "string" && parsed.trim()) {
+            return [parsed.trim()];
+          }
+
+          return [];
+        } catch (e) {
+          // If not valid JSON, treat as single string if it has content
+          if (
+            rawValue &&
+            typeof rawValue === "string" &&
+            rawValue.trim() !== "" &&
+            rawValue !== "[]" &&
+            rawValue !== "[ ]"
+          ) {
+            return [rawValue.trim()];
+          }
+          return [];
         }
+      },
+      set(val) {
+        // Normalize the input
+        let valueToStore = [];
 
-        // If not an array but valid content, return as single-item array
-        if (parsed && typeof parsed === "string" && parsed.trim()) {
-          return [parsed.trim()];
-        }
-
-        return [];
-      } catch (e) {
-        // If not valid JSON, treat as single string if it has content
-        if (
-          rawValue &&
-          typeof rawValue === "string" &&
-          rawValue.trim() !== "" &&
-          rawValue !== "[]" &&
-          rawValue !== "[ ]"
+        if (Array.isArray(val)) {
+          // Filter out empty/null values and normalize strings
+          valueToStore = val
+            .filter((v) => v && typeof v === "string" && v.trim())
+            .map((v) => v.trim());
+        } else if (
+          val &&
+          typeof val === "string" &&
+          val.trim() &&
+          val !== "[]" &&
+          val !== "[ ]"
         ) {
-          return [rawValue.trim()];
+          valueToStore = [val.trim()];
         }
-        return [];
-      }
+
+        this.setDataValue("cocktails", JSON.stringify(valueToStore));
+      },
     },
-    set(val) {
-      // Normalize the input
-      let valueToStore = [];
 
-      if (Array.isArray(val)) {
-        // Filter out empty/null values and normalize strings
-        valueToStore = val
-          .filter((v) => v && typeof v === "string" && v.trim())
-          .map((v) => v.trim());
-      } else if (
-        val &&
-        typeof val === "string" &&
-        val.trim() &&
-        val !== "[]" &&
-        val !== "[ ]"
-      ) {
-        valueToStore = [val.trim()];
-      }
+    // Same pattern for meals
+    meals: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue("meals");
+        if (!rawValue) return [];
 
-      this.setDataValue("cocktails", JSON.stringify(valueToStore));
-    },
-  },
-
-  // Same pattern for meals
-  meals: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const rawValue = this.getDataValue("meals");
-      if (!rawValue) return [];
-
-      try {
-        const parsed = JSON.parse(rawValue);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (item) =>
-              item &&
-              typeof item === "string" &&
-              item.trim() !== "" &&
-              item !== "[]" &&
-              item !== "[ ]",
-          );
+        try {
+          const parsed = JSON.parse(rawValue);
+          if (Array.isArray(parsed)) {
+            return parsed.filter(
+              (item) =>
+                item &&
+                typeof item === "string" &&
+                item.trim() !== "" &&
+                item !== "[]" &&
+                item !== "[ ]"
+            );
+          }
+          if (parsed && typeof parsed === "string" && parsed.trim()) {
+            return [parsed.trim()];
+          }
+          return [];
+        } catch (e) {
+          if (
+            rawValue &&
+            typeof rawValue === "string" &&
+            rawValue.trim() !== "" &&
+            rawValue !== "[]" &&
+            rawValue !== "[ ]"
+          ) {
+            return [rawValue.trim()];
+          }
+          return [];
         }
-        if (parsed && typeof parsed === "string" && parsed.trim()) {
-          return [parsed.trim()];
-        }
-        return [];
-      } catch (e) {
-        if (
-          rawValue &&
-          typeof rawValue === "string" &&
-          rawValue.trim() !== "" &&
-          rawValue !== "[]" &&
-          rawValue !== "[ ]"
+      },
+      set(val) {
+        let valueToStore = [];
+
+        if (Array.isArray(val)) {
+          valueToStore = val
+            .filter((v) => v && typeof v === "string" && v.trim())
+            .map((v) => v.trim());
+        } else if (
+          val &&
+          typeof val === "string" &&
+          val.trim() &&
+          val !== "[]" &&
+          val !== "[ ]"
         ) {
-          return [rawValue.trim()];
+          valueToStore = [val.trim()];
         }
-        return [];
-      }
+
+        this.setDataValue("meals", JSON.stringify(valueToStore));
+      },
     },
-    set(val) {
-      let valueToStore = [];
 
-      if (Array.isArray(val)) {
-        valueToStore = val
-          .filter((v) => v && typeof v === "string" && v.trim())
-          .map((v) => v.trim());
-      } else if (
-        val &&
-        typeof val === "string" &&
-        val.trim() &&
-        val !== "[]" &&
-        val !== "[ ]"
-      ) {
-        valueToStore = [val.trim()];
-      }
+    // Same pattern for desserts
+    desserts: {
+      type: DataTypes.TEXT,
+      allowNull: true,
+      get() {
+        const rawValue = this.getDataValue("desserts");
+        if (!rawValue) return [];
 
-      this.setDataValue("meals", JSON.stringify(valueToStore));
-    },
-  },
-
-  // Same pattern for desserts
-  desserts: {
-    type: DataTypes.TEXT,
-    allowNull: true,
-    get() {
-      const rawValue = this.getDataValue("desserts");
-      if (!rawValue) return [];
-
-      try {
-        const parsed = JSON.parse(rawValue);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(
-            (item) =>
-              item &&
-              typeof item === "string" &&
-              item.trim() !== "" &&
-              item !== "[]" &&
-              item !== "[ ]",
-          );
+        try {
+          const parsed = JSON.parse(rawValue);
+          if (Array.isArray(parsed)) {
+            return parsed.filter(
+              (item) =>
+                item &&
+                typeof item === "string" &&
+                item.trim() !== "" &&
+                item !== "[]" &&
+                item !== "[ ]"
+            );
+          }
+          if (parsed && typeof parsed === "string" && parsed.trim()) {
+            return [parsed.trim()];
+          }
+          return [];
+        } catch (e) {
+          if (
+            rawValue &&
+            typeof rawValue === "string" &&
+            rawValue.trim() !== "" &&
+            rawValue !== "[]" &&
+            rawValue !== "[ ]"
+          ) {
+            return [rawValue.trim()];
+          }
+          return [];
         }
-        if (parsed && typeof parsed === "string" && parsed.trim()) {
-          return [parsed.trim()];
-        }
-        return [];
-      } catch (e) {
-        if (
-          rawValue &&
-          typeof rawValue === "string" &&
-          rawValue.trim() !== "" &&
-          rawValue !== "[]" &&
-          rawValue !== "[ ]"
+      },
+      set(val) {
+        let valueToStore = [];
+
+        if (Array.isArray(val)) {
+          valueToStore = val
+            .filter((v) => v && typeof v === "string" && v.trim())
+            .map((v) => v.trim());
+        } else if (
+          val &&
+          typeof val === "string" &&
+          val.trim() &&
+          val !== "[]" &&
+          val !== "[ ]"
         ) {
-          return [rawValue.trim()];
+          valueToStore = [val.trim()];
         }
-        return [];
-      }
-    },
-    set(val) {
-      let valueToStore = [];
 
-      if (Array.isArray(val)) {
-        valueToStore = val
-          .filter((v) => v && typeof v === "string" && v.trim())
-          .map((v) => v.trim());
-      } else if (
-        val &&
-        typeof val === "string" &&
-        val.trim() &&
-        val !== "[]" &&
-        val !== "[ ]"
-      ) {
-        valueToStore = [val.trim()];
-      }
-
-      this.setDataValue("desserts", JSON.stringify(valueToStore));
+        this.setDataValue("desserts", JSON.stringify(valueToStore));
+      },
     },
   },
-});
+  {
+    tableName: "MovieMondayEventDetails",
+    timestamps: true,
+  }
+);
 
 const MovieMonday = sequelize.define(
   "MovieMonday",
@@ -375,7 +382,12 @@ const MovieMonday = sequelize.define(
   {
     tableName: "MovieMondays",
     timestamps: true,
-  },
+    indexes: [
+      { fields: ["GroupId"] },
+      { fields: ["date"] },
+      { fields: ["pickerUserId"] },
+    ],
+  }
 );
 
 const MovieSelection = sequelize.define(
@@ -438,7 +450,12 @@ const MovieSelection = sequelize.define(
   {
     tableName: "MovieSelections",
     timestamps: true,
-  },
+    indexes: [
+      { fields: ["movieMondayId"] },
+      { fields: ["isWinner"] },
+      { fields: ["releaseYear"] },
+    ],
+  }
 );
 
 const MovieCast = sequelize.define(
@@ -476,7 +493,8 @@ const MovieCast = sequelize.define(
   },
   {
     tableName: "MovieCast",
-  },
+    indexes: [{ fields: ["movieSelectionId"] }, { fields: ["actorId"] }],
+  }
 );
 
 const MovieCrew = sequelize.define(
@@ -514,7 +532,12 @@ const MovieCrew = sequelize.define(
   },
   {
     tableName: "MovieCrew",
-  },
+    indexes: [
+      { fields: ["movieSelectionId"] },
+      { fields: ["personId"] },
+      { fields: ["job"] },
+    ],
+  }
 );
 const CommentSection = sequelize.define(
   "CommentSection",
@@ -565,7 +588,7 @@ const CommentSection = sequelize.define(
         fields: ["contentId"], // Fast lookup by content ID
       },
     ],
-  },
+  }
 );
 
 // 2. Comment Model - Supports threaded/nested comments (Reddit-style)
@@ -680,7 +703,7 @@ const Comment = sequelize.define(
         fields: ["commentSectionId", "parentCommentId"], // Composite for top-level comments
       },
     ],
-  },
+  }
 );
 
 // 3. CommentVote Model - Handles upvotes/downvotes
@@ -730,7 +753,7 @@ const CommentVote = sequelize.define(
         fields: ["userId"], // Fast lookup for user's votes
       },
     ],
-  },
+  }
 );
 
 // 4. CommentReport Model - For moderation (future-proofing)
@@ -798,7 +821,7 @@ const CommentReport = sequelize.define(
         fields: ["isResolved"],
       },
     ],
-  },
+  }
 );
 const MovieMondayLike = sequelize.define(
   "MovieMondayLike",
@@ -836,9 +859,8 @@ const MovieMondayLike = sequelize.define(
         name: "unique_user_moviemonday_like",
       },
     ],
-  },
+  }
 );
-
 
 const MovieMondayRating = sequelize.define(
   "MovieMondayRating",
@@ -883,7 +905,7 @@ const MovieMondayRating = sequelize.define(
         fields: ["movieMondayId"], // fast aggregate lookups
       },
     ],
-  },
+  }
 );
 const UserFollow = sequelize.define(
   "UserFollow",
@@ -902,7 +924,7 @@ const UserFollow = sequelize.define(
         name: "unique_follow",
       },
     ],
-  },
+  }
 );
 const UserReview = sequelize.define(
   "UserReview",
@@ -931,7 +953,7 @@ const UserReview = sequelize.define(
         name: "unique_user_movie_review",
       },
     ],
-  },
+  }
 );
 
 // Group-User many-to-many relationship
@@ -1098,10 +1120,16 @@ CommentReport.belongsTo(User, {
   foreignKey: "resolvedByUserId",
   as: "resolver",
 });
-User.hasMany(UserFollow, { foreignKey: 'followerId', as: 'followingRelations' });
-User.hasMany(UserFollow, { foreignKey: 'followingId', as: 'followerRelations' });
-UserFollow.belongsTo(User, { foreignKey: 'followerId', as: 'followerUser' });
-UserFollow.belongsTo(User, { foreignKey: 'followingId', as: 'followedUser' });
+User.hasMany(UserFollow, {
+  foreignKey: "followerId",
+  as: "followingRelations",
+});
+User.hasMany(UserFollow, {
+  foreignKey: "followingId",
+  as: "followerRelations",
+});
+UserFollow.belongsTo(User, { foreignKey: "followerId", as: "followerUser" });
+UserFollow.belongsTo(User, { foreignKey: "followingId", as: "followedUser" });
 
 User.hasMany(UserReview, { foreignKey: "userId", as: "reviews" });
 UserReview.belongsTo(User, { foreignKey: "userId", as: "reviewer" });
@@ -1136,5 +1164,5 @@ module.exports = {
   CommentReport,
   UserReview,
   UserFollow,
-  MovieMondayRating, 
+  MovieMondayRating,
 };
