@@ -1723,7 +1723,6 @@ router.get(
   async (req, res) => {
     try {
       const { groupId } = req.params;
-      const limit = parseInt(req.query.limit) || 20;
 
       const cacheKey = `recs:${groupId}`;
       const cached = recommendationsCache.get(cacheKey);
@@ -1734,49 +1733,62 @@ router.get(
       // Get all movie selections for this group (both winners and losers)
       const movieMondays = await MovieMonday.findAll({
         where: { GroupId: groupId },
+        attributes: ["id", "date"],
         include: [
           {
             model: MovieSelection,
+            as: "movieSelections",
             attributes: ["tmdbMovieId", "genres", "isWinner"],
             required: true,
           },
         ],
-        order: [["eventDate", "DESC"]],
+        order: [["date", "DESC"]],
       });
 
+      const emptyPayload = {
+        recommendations: {
+          basedOnMovies: [],
+          topGenres: [],
+          totalMoviesWatched: 0,
+          totalMoviesVotedOn: 0,
+        },
+      };
+
       if (!movieMondays || movieMondays.length === 0) {
-        const empty = { recommendations: [] };
-        recommendationsCache.set(cacheKey, empty);
-        return res.json(empty);
+        recommendationsCache.set(cacheKey, emptyPayload);
+        return res.json(emptyPayload);
       }
 
-      // Extract all TMDB movie IDs from group's history
+      // genres is a JSON-encoded TEXT column — handle array or string safely
+      const parseGenres = (value) => {
+        if (!value) return [];
+        if (Array.isArray(value)) return value;
+        try {
+          const parsed = JSON.parse(value);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch {
+          return [];
+        }
+      };
+
       const allMovieIds = [];
       const genreFrequency = new Map();
 
       movieMondays.forEach((monday) => {
-        monday.movieSelections.forEach((selection) => {
+        (monday.movieSelections || []).forEach((selection) => {
           allMovieIds.push(selection.tmdbMovieId);
 
-          // Track genre frequency (with higher weight for winners)
-          if (selection.genres) {
-            const genres =
-              typeof selection.genres === "string"
-                ? JSON.parse(selection.genres)
-                : selection.genres;
-
-            genres.forEach((genre) => {
-              const weight = selection.isWinner ? 2 : 1; // Winners count double
-              genreFrequency.set(
-                genre,
-                (genreFrequency.get(genre) || 0) + weight,
-              );
-            });
-          }
+          const weight = selection.isWinner ? 2 : 1; // Winners count double
+          parseGenres(selection.genres).forEach((genre) => {
+            genreFrequency.set(
+              genre,
+              (genreFrequency.get(genre) || 0) + weight,
+            );
+          });
         });
       });
 
-      // Get top 3 most common genres
+      // Top 3 most common genres
       const topGenres = Array.from(genreFrequency.entries())
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
@@ -1784,21 +1796,27 @@ router.get(
 
       const payload = {
         recommendations: {
-          basedOnMovies: allMovieIds,
-          topGenres: topGenres,
+          basedOnMovies: [...new Set(allMovieIds)],
+          topGenres,
           totalMoviesWatched: movieMondays.filter((m) =>
             m.movieSelections.some((s) => s.isWinner),
           ).length,
           totalMoviesVotedOn: allMovieIds.length,
         },
       };
+
       recommendationsCache.set(cacheKey, payload);
       res.json(payload);
     } catch (error) {
       console.error("Error generating group recommendations:", error);
       res.status(500).json({
         error: "Failed to generate recommendations",
-        recommendations: [],
+        recommendations: {
+          basedOnMovies: [],
+          topGenres: [],
+          totalMoviesWatched: 0,
+          totalMoviesVotedOn: 0,
+        },
       });
     }
   },
