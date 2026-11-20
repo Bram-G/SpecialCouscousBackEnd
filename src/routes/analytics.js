@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { Op, fn, col, literal } = require("sequelize");
+const { Op, QueryTypes } = require("sequelize");
 
 const authMiddleware = require("../middleware/auth");
 
@@ -14,6 +14,7 @@ const {
   // May be undefined if not exported — handled defensively below.
   MovieMondayRating,
   GroupGuest,
+  sequelize,
 } = require("../models");
 
 // ---------------------------------------------------------------------------
@@ -63,7 +64,7 @@ function toStringArray(value) {
     .filter((v) => v && v !== "[]" && v !== "[ ]");
 }
 
-// ---------------------------------------------------------------------------
+/// ---------------------------------------------------------------------------
 // Group data loader (shared by /overview and /movies drill-downs)
 // ---------------------------------------------------------------------------
 // One scoped read of everything the charts need, normalized into a compact
@@ -718,10 +719,17 @@ async function fetchRatingsByMonday(mondayIds) {
   }
   return map;
 }
-
 // ---- Actors / Directors table --------------------------------------------
-// One row per person, aggregated in SQL. Scales without loading every cast/crew
-// row into memory.
+// One row per person, aggregated in a single raw SQL query. (The previous
+// Sequelize findAll/count version 500'd: Model.count() with `include`
+// prefixes `col` with the model name, producing "MovieCast.MovieCast.actorId".)
+//
+// Counting matches the charts:
+//   appearances -> distinct movie selections the person is in (a person with
+//                  two roles in one movie counts once)
+//   wins        -> selections that won
+//   losses      -> non-winning selections on a decided Monday (has a winner)
+//   winRate     -> wins / (wins + losses); undecided nights are ignored
 async function peopleTable({
   model,
   idCol,
@@ -734,74 +742,84 @@ async function peopleTable({
   sortDir,
   groupIds,
 }) {
-  const personWhere = {};
-  if (jobFilter) personWhere.job = jobFilter;
-  if (search) personWhere.name = { [Op.iLike]: `%${search}%` };
+  // Table / column names come from this file only (never from the request).
+  const table = model.getTableName(); // "MovieCast" | "MovieCrew"
+  const tableSql = typeof table === "string" ? `"${table}"` : `"${table.tableName}"`;
 
-  const modelName = model.name; // "MovieCast" | "MovieCrew"
-  const winnerExpr = literal(
-    `CASE WHEN "MovieSelection"."isWinner" THEN 1 ELSE 0 END`,
-  );
+  const where = [`mm."GroupId" IN (:groupIds)`];
+  const replacements = { groupIds, limit: pageSize, offset };
+  if (jobFilter) {
+    where.push(`p."job" = :job`);
+    replacements.job = jobFilter;
+  }
+  if (search) {
+    where.push(`p."name" ILIKE :search`);
+    replacements.search = `%${search}%`;
+  }
 
-  const selectionInclude = {
-    model: MovieSelection,
-    attributes: [],
-    required: true,
-    include: [
-      {
-        model: MovieMonday,
-        attributes: [],
-        required: true,
-        where: { GroupId: groupIds },
-      },
-    ],
-  };
+  const peopleCte = `
+    WITH decided AS (
+      SELECT DISTINCT "movieMondayId"
+      FROM "MovieSelections"
+      WHERE "isWinner" = true
+    ),
+    people AS (
+      SELECT
+        p."${idCol}" AS "personId",
+        MAX(p."name") AS "name",
+        COUNT(DISTINCT ms."id") AS "appearances",
+        COUNT(DISTINCT ms."id") FILTER (WHERE ms."isWinner" = true) AS "wins",
+        COUNT(DISTINCT ms."id") FILTER (
+          WHERE COALESCE(ms."isWinner", false) = false
+            AND d."movieMondayId" IS NOT NULL
+        ) AS "losses"
+      FROM ${tableSql} p
+      JOIN "MovieSelections" ms ON ms."id" = p."movieSelectionId"
+      JOIN "MovieMondays" mm ON mm."id" = ms."movieMondayId"
+      LEFT JOIN decided d ON d."movieMondayId" = ms."movieMondayId"
+      WHERE ${where.join(" AND ")}
+      GROUP BY p."${idCol}"
+    )`;
 
-  // Whitelisted aggregate sorts (Postgres allows ORDER BY on output aliases).
+  // Whitelisted sorts -> real SQL expressions (no request text reaches SQL).
   const sortExprMap = {
-    appearances: "appearances",
-    wins: "wins",
-    losses: "losses",
-    name: "name",
-    winRate: `(CAST("wins" AS FLOAT) / NULLIF("appearances", 0))`,
+    appearances: `"appearances"`,
+    wins: `"wins"`,
+    losses: `"losses"`,
+    name: `"name"`,
+    winRate: `(CAST("wins" AS FLOAT) / NULLIF("wins" + "losses", 0))`,
   };
-  const sortExpr = sortExprMap[sortBy] || "appearances";
+  const sortExpr = sortExprMap[sortBy] || sortExprMap.appearances;
+  const dir = sortDir === "ASC" ? "ASC" : "DESC";
 
-  const baseRows = await model.findAll({
-    attributes: [
-      [col(`${modelName}.${idCol}`), "personId"],
-      [fn("MAX", col(`${modelName}.name`)), "name"],
-      [fn("COUNT", col(`${modelName}.id`)), "appearances"],
-      [fn("SUM", winnerExpr), "wins"],
-    ],
-    where: personWhere,
-    include: [selectionInclude],
-    group: [`${modelName}.${idCol}`],
-    order: [[literal(sortExpr), sortDir]],
-    limit: pageSize,
-    offset,
-    subQuery: false,
-    raw: true,
-  });
+  const [rowsRaw, countRows] = await Promise.all([
+    sequelize.query(
+      `${peopleCte}
+      SELECT * FROM people
+      ORDER BY ${sortExpr} ${dir} NULLS LAST, "name" ASC
+      LIMIT :limit OFFSET :offset`,
+      { replacements, type: QueryTypes.SELECT },
+    ),
+    sequelize.query(`${peopleCte} SELECT COUNT(*)::int AS "total" FROM people`, {
+      replacements,
+      type: QueryTypes.SELECT,
+    }),
+  ]);
 
-  // Total distinct people matching the same filter (for pagination).
-  const total = await model.count({
-    where: personWhere,
-    include: [selectionInclude],
-    distinct: true,
-    col: `${modelName}.${idCol}`,
-  });
+  const total = Number(countRows[0]?.total) || 0;
 
-  const rows = baseRows.map((r) => {
+  const rows = rowsRaw.map((r) => {
     const appearances = Number(r.appearances) || 0;
     const wins = Number(r.wins) || 0;
+    const losses = Number(r.losses) || 0;
+    const decided = wins + losses;
     return {
       id: Number(r.personId),
       name: r.name,
       appearances,
       wins,
-      losses: appearances - wins,
-      winRate: appearances ? Math.round((wins / appearances) * 1000) / 10 : 0,
+      losses,
+      winRate: decided ? Math.round((wins / decided) * 1000) / 10 : 0,
     };
   });
 
@@ -809,10 +827,8 @@ async function peopleTable({
     type: jobFilter ? "directors" : "actors",
     page,
     pageSize,
-    total: typeof total === "number" ? total : total?.length || rows.length,
-    totalPages: Math.ceil(
-      (typeof total === "number" ? total : rows.length) / pageSize,
-    ),
+    total,
+    totalPages: Math.ceil(total / pageSize),
     rows,
   };
 }
