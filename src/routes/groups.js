@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const auth = require("../middleware/auth");
-const { User, Group, GroupInvite, MovieMonday } = require("../models");
+const { User, Group, GroupInvite, MovieMonday, GroupGuest } = require("../models");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = process.env;
 const { sendGroupInviteEmail } = require("../utils/emailUtils");
@@ -13,9 +13,12 @@ router.get("/users/group", auth, async (req, res) => {
     const userWithGroup = await User.findOne({
       where: { id: user.id },
       include: [
-        {
+                {
           model: Group,
-          include: [{ model: User, attributes: ["id", "username", "email"] }],
+          include: [
+            { model: User, attributes: ["id", "username", "email"] },
+            { model: GroupGuest, as: "guests", attributes: ["id", "name"] },
+          ],
         },
       ],
     });
@@ -30,6 +33,7 @@ router.get("/users/group", auth, async (req, res) => {
       name: group.name,
       createdById: group.createdById,
       members: group.Users,
+      guests: (group.guests || []).sort((a, b) => a.name.localeCompare(b.name)),
       createdAt: group.createdAt,
       isPublic: group.isPublic,
       slug: group.slug,
@@ -38,6 +42,65 @@ router.get("/users/group", auth, async (req, res) => {
   } catch (error) {
     console.error("Error fetching user group:", error);
     res.status(500).json({ error: "Failed to fetch group" });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Placeholder ("guest") pickers — people without an account who can still be
+// assigned as a Monday's picker.
+// ---------------------------------------------------------------------------
+router.post("/groups/:groupId/guests", auth, async (req, res) => {
+  try {
+    const groupId = parseInt(req.params.groupId, 10);
+    if (!req.isInGroup(groupId)) {
+      return res.status(403).json({ error: "Not a member of this group" });
+    }
+
+    const name = (req.body.name || "").trim();
+    if (!name) {
+      return res.status(400).json({ error: "Name is required" });
+    }
+    if (name.length > 60) {
+      return res.status(400).json({ error: "Name must be 60 characters or fewer" });
+    }
+
+    const existing = await GroupGuest.findAll({ where: { GroupId: groupId } });
+    if (existing.some((g) => g.name.toLowerCase() === name.toLowerCase())) {
+      return res.status(409).json({ error: "A placeholder with that name already exists" });
+    }
+
+    const guest = await GroupGuest.create({ GroupId: groupId, name });
+    res.status(201).json({ id: guest.id, name: guest.name });
+  } catch (error) {
+    console.error("Error adding guest:", error);
+    res.status(500).json({ error: "Failed to add placeholder" });
+  }
+});
+
+router.delete("/groups/:groupId/guests/:guestId", auth, async (req, res) => {
+  try {
+    const groupId = parseInt(req.params.groupId, 10);
+    const guestId = parseInt(req.params.guestId, 10);
+    if (!req.isInGroup(groupId)) {
+      return res.status(403).json({ error: "Not a member of this group" });
+    }
+
+    const guest = await GroupGuest.findOne({ where: { id: guestId, GroupId: groupId } });
+    if (!guest) {
+      return res.status(404).json({ error: "Placeholder not found" });
+    }
+
+    // Unassign them from any Mondays first (no FK constraint does this for us)
+    await MovieMonday.update(
+      { pickerGuestId: null },
+      { where: { pickerGuestId: guestId }, hooks: false },
+    );
+    await guest.destroy();
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error removing guest:", error);
+    res.status(500).json({ error: "Failed to remove placeholder" });
   }
 });
 //Leave Group

@@ -13,6 +13,7 @@ const {
   User,
   // May be undefined if not exported — handled defensively below.
   MovieMondayRating,
+  GroupGuest,
 } = require("../models");
 
 // ---------------------------------------------------------------------------
@@ -92,7 +93,7 @@ router.get("/overview", authMiddleware, async (req, res) => {
     // One scoped read of everything the overview needs.
     const movieMondays = await MovieMonday.findAll({
       where: { GroupId: groupIds },
-      attributes: ["id", "date", "pickerUserId"],
+      attributes: ["id", "date", "pickerUserId", "pickerGuestId"],
       include: [
         {
           model: MovieSelection,
@@ -108,6 +109,7 @@ router.get("/overview", authMiddleware, async (req, res) => {
           ],
         },
         { model: User, as: "picker", attributes: ["id", "username"] },
+                { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
         {
           model: MovieMondayEventDetails,
           as: "eventDetails",
@@ -189,19 +191,23 @@ router.get("/overview", authMiddleware, async (req, res) => {
         }
       }
 
-      // Pickers — "Movies chosen by": winning weeks per picker
-      if (plain.picker) {
-        const u = plain.picker;
-        if (!pickers[u.username]) {
-          pickers[u.username] = {
-            id: u.id,
-            name: u.username,
+      // Placeholder guests count too; their name is the key either way.
+      const pickerName = plain.picker
+        ? plain.picker.username
+        : plain.pickerGuest
+          ? plain.pickerGuest.name
+          : null;
+      if (pickerName) {
+        if (!pickers[pickerName]) {
+          pickers[pickerName] = {
+            id: plain.picker ? plain.picker.id : null,
+            name: pickerName,
             winningPicks: 0,
             totalPicks: 0,
           };
         }
-        pickers[u.username].totalPicks++;
-        if (mondayHasWinner) pickers[u.username].winningPicks++;
+        pickers[pickerName].totalPicks++;
+        if (mondayHasWinner) pickers[pickerName].winningPicks++;
       }
 
       // Food & drink
@@ -465,6 +471,12 @@ async function moviesTable({
             required: false,
             attributes: ["id", "username"],
           },
+          {
+            model: GroupGuest,
+            as: "pickerGuest",
+            required: false,
+            attributes: ["id", "name"],
+          },
         ],
       },
     ],
@@ -535,7 +547,9 @@ async function moviesTable({
       slug: mm.slug || null,
       picker: mm.picker
         ? { id: mm.picker.id, username: mm.picker.username }
-        : null,
+        : mm.pickerGuest
+          ? { id: null, username: mm.pickerGuest.name, isGuest: true }
+          : null,
       directors,
       leadActors: cast.slice(0, 3).map((c) => c.name),
       actorCount: cast.length,

@@ -74,6 +74,7 @@ const userRoutes = require("./routes/users");
 const reviewRoutes = require("./routes/reviews");
 const adminRoutes = require("./routes/admin");
 const ratingRoutes = require("./routes/ratings");
+const voteRoutes = require("./routes/votes");
 
 // Mount routes
 app.use("/auth", authRoutes);
@@ -85,6 +86,7 @@ app.use("/api/users", userRoutes);
 app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/ratings", ratingRoutes);
+app.use("/api/votes", voteRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
@@ -98,6 +100,10 @@ app.use((req, res) => {
 
 const PORT = process.env.PORT || 8000;
 
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+const ensureSchema = require("./utils/ensureSchema");
+
+ensureSchema().finally(() => {
+  app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+  });
 });

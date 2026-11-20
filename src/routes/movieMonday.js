@@ -13,6 +13,7 @@ const {
   MovieMondayLike,
   sequelize,
   Statistic,
+  GroupGuest,
 } = require("../models");
 const { Op } = require("sequelize");
 const NodeCache = require("node-cache");
@@ -648,6 +649,7 @@ router.get("/all", authMiddleware, async (req, res) => {
           ],
         },
         { model: User, as: "picker", attributes: ["id", "username"] },
+                { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
         { model: MovieMondayEventDetails, as: "eventDetails" },
       ],
       order: [["date", "DESC"]],
@@ -749,6 +751,11 @@ router.get("/available", authMiddleware, async (req, res) => {
           as: "picker",
           attributes: ["id", "username"],
         },
+        {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
+        },
       ],
     });
 
@@ -799,6 +806,11 @@ router.get("/analytics", authMiddleware, async (req, res) => {
           model: User,
           as: "picker",
           attributes: ["id", "username"],
+        },
+        {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
         },
       ],
     });
@@ -891,11 +903,14 @@ router.get("/analytics", authMiddleware, async (req, res) => {
 
       analytics.moviesByMonth[monthKey].count += plainMM.movieSelections.length;
 
-      if (plainMM.picker) {
-        const pickerName = plainMM.picker.username;
+      const pickerEntity = plainMM.picker || plainMM.pickerGuest;
+      if (pickerEntity) {
+        const pickerName = plainMM.picker
+          ? plainMM.picker.username
+          : plainMM.pickerGuest.name;
         if (!analytics.pickers[pickerName]) {
           analytics.pickers[pickerName] = {
-            id: plainMM.picker.id,
+            id: pickerEntity.id,
             picks: 0,
             wins: 0,
           };
@@ -1258,6 +1273,11 @@ router.post("/create", authMiddleware, async (req, res) => {
           as: "picker",
           attributes: ["id", "username"],
         },
+        {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
+        },
       ],
     });
 
@@ -1301,6 +1321,11 @@ router.post("/dates", authMiddleware, async (req, res) => {
           model: User,
           as: "picker",
           attributes: ["id", "username"],
+        },
+        {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
         },
         {
           model: MovieMondayEventDetails,
@@ -1870,29 +1895,78 @@ router.get("/voted-but-not-picked/:groupId", optionalAuth, async (req, res) => {
 });
 
 // PUT /update-picker - Update picker for movie monday
+//
+// Body accepts either:
+//   { movieMondayId, pickerKey: "user:<id>" | "guest:<id>" }   ← what the calendar sends
+//   { movieMondayId, pickerUserId }                            ← legacy shape, still supported
 router.put("/update-picker", authMiddleware, async (req, res) => {
   try {
-    const { movieMondayId, pickerUserId } = req.body;
+    const { movieMondayId, pickerKey } = req.body;
+    let { pickerUserId } = req.body;
+    let pickerGuestId = null;
 
+    if (typeof pickerKey === "string") {
+      const [kind, rawId] = pickerKey.split(":");
+      const parsedId = parseInt(rawId, 10);
+
+      if (!Number.isInteger(parsedId) || !["user", "guest"].includes(kind)) {
+        return res.status(400).json({ message: "Invalid pickerKey" });
+      }
+      if (kind === "user") {
+        pickerUserId = parsedId;
+      } else {
+        pickerUserId = null;
+        pickerGuestId = parsedId;
+      }
+    } else if (pickerUserId !== undefined && pickerUserId !== null) {
+      pickerUserId = parseInt(pickerUserId, 10);
+    } else {
+      return res
+        .status(400)
+        .json({ message: "pickerKey or pickerUserId is required" });
+    }
+
+    const userGroupIds = req.userGroups.map((group) => group.id);
     const movieMonday = await MovieMonday.findOne({
-      where: { id: movieMondayId },
+      where: { id: movieMondayId, GroupId: userGroupIds },
     });
 
     if (!movieMonday) {
-      return res.status(404).json({ message: "Movie Monday not found" });
+      return res
+        .status(404)
+        .json({ message: "Movie Monday not found or not in your group" });
     }
 
-    movieMonday.pickerUserId = pickerUserId;
-    await movieMonday.save();
+    // Make sure the chosen picker actually belongs to this Monday's group
+    if (pickerGuestId) {
+      const guest = await GroupGuest.findOne({
+        where: { id: pickerGuestId, GroupId: movieMonday.GroupId },
+      });
+      if (!guest) {
+        return res
+          .status(400)
+          .json({ message: "That placeholder isn't part of this group" });
+      }
+    } else {
+      const group = await Group.findByPk(movieMonday.GroupId);
+      const isMember = group && (await group.hasUser(pickerUserId));
+      if (!isMember) {
+        return res
+          .status(400)
+          .json({ message: "That user isn't a member of this group" });
+      }
+    }
+
+    await movieMonday.update({ pickerUserId, pickerGuestId });
+
+    // /all, analytics and menu lists are cached — clear so the change shows
+    invalidateStatsCache();
 
     const updatedMovieMonday = await MovieMonday.findOne({
-      where: { id: movieMondayId },
+      where: { id: movieMonday.id },
       include: [
-        {
-          model: User,
-          as: "picker",
-          attributes: ["id", "username"],
-        },
+        { model: User, as: "picker", attributes: ["id", "username"] },
+        { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
       ],
     });
 
@@ -2146,6 +2220,11 @@ router.get("/:id/details", authMiddleware, async (req, res) => {
           attributes: ["id", "username"],
         },
         {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
+        },
+        {
           model: MovieSelection,
           as: "movieSelections",
           include: [
@@ -2206,6 +2285,11 @@ router.get("/:id/details", authMiddleware, async (req, res) => {
             attributes: ["id", "username"],
           },
           {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
+        },
+          {
             model: MovieSelection,
             as: "movieSelections",
             include: [
@@ -2255,6 +2339,7 @@ router.get("/public/:slug", async (req, res) => {
           where: { isPublic: true }, // INNER JOIN: only if group is public
         },
         { model: User, as: "picker", attributes: ["id", "username"] },
+                { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
         {
           model: MovieSelection,
           as: "movieSelections",
@@ -2307,6 +2392,11 @@ router.get("/group/:groupId", authMiddleware, async (req, res) => {
           model: User,
           as: "picker",
           attributes: ["id", "username"],
+        },
+        {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
         },
       ],
       order: [["date", "DESC"]],
@@ -2385,6 +2475,7 @@ router.get("/browse/group/:groupSlug", async (req, res) => {
       where: { GroupId: group.id }, // group gates visibility now
       include: [
         { model: User, as: "picker", attributes: ["id", "username"] },
+                { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
         {
           model: MovieSelection,
           as: "movieSelections",
@@ -2725,6 +2816,11 @@ router.get("/:date", authMiddleware, async (req, res) => {
           model: User,
           as: "picker",
           attributes: ["id", "username"],
+        },
+                {
+          model: GroupGuest,
+          as: "pickerGuest",
+          attributes: ["id", "name"],
         },
         {
           model: MovieMondayEventDetails,

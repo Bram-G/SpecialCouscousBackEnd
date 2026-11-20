@@ -346,9 +346,13 @@ const MovieMonday = sequelize.define(
       type: DataTypes.DATEONLY,
       allowNull: false,
     },
-    pickerUserId: {
+        pickerUserId: {
       type: DataTypes.INTEGER,
-      allowNull: false,
+      allowNull: true, // null when the picker is a placeholder guest
+    },
+    pickerGuestId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
     },
     GroupId: {
       type: DataTypes.INTEGER,
@@ -955,7 +959,85 @@ const UserReview = sequelize.define(
     ],
   }
 );
+// ============================================================================
+// PLACEHOLDER (GUEST) PICKERS — people without an account who can be pickers
+// ============================================================================
+const GroupGuest = sequelize.define(
+  "GroupGuest",
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    GroupId: { type: DataTypes.INTEGER, allowNull: false },
+    name: { type: DataTypes.STRING(60), allowNull: false },
+  },
+  {
+    tableName: "GroupGuests",
+    timestamps: true,
+    indexes: [{ fields: ["GroupId"] }],
+  }
+);
 
+// ============================================================================
+// LIVE VOTING — QR-code ballots, no login required to vote
+// ============================================================================
+const VoteSession = sequelize.define(
+  "VoteSession",
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    movieMondayId: { type: DataTypes.INTEGER, allowNull: false },
+    createdById: { type: DataTypes.INTEGER, allowNull: false },
+    // Unguessable public token used in the QR/share URL
+    token: { type: DataTypes.STRING(64), allowNull: false, unique: true },
+    // "single" | "ranked" — STRING rather than ENUM so adding modes later
+    // never needs an ALTER TYPE
+    mode: { type: DataTypes.STRING(16), allowNull: false, defaultValue: "single" },
+    // "open" | "closed"
+    status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: "open" },
+    closedAt: { type: DataTypes.DATE, allowNull: true },
+  },
+  {
+    tableName: "VoteSessions",
+    timestamps: true,
+    indexes: [{ fields: ["movieMondayId"] }],
+  }
+);
+
+const Ballot = sequelize.define(
+  "Ballot",
+  {
+    id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
+    voteSessionId: { type: DataTypes.INTEGER, allowNull: false },
+    // Random id generated in the voter's browser (localStorage). Lets someone
+    // change their vote without an account; never tied to a user.
+    voterKey: { type: DataTypes.STRING(64), allowNull: false },
+    // JSON array of MovieSelection ids, most-preferred first.
+    // Single-vote ballots are just a one-element array.
+    rankings: {
+      type: DataTypes.TEXT,
+      allowNull: false,
+      get() {
+        const raw = this.getDataValue("rankings");
+        if (!raw) return [];
+        try {
+          const parsed = JSON.parse(raw);
+          return Array.isArray(parsed) ? parsed : [];
+        } catch (e) {
+          return [];
+        }
+      },
+      set(val) {
+        this.setDataValue("rankings", JSON.stringify(val || []));
+      },
+    },
+  },
+  {
+    tableName: "Ballots",
+    timestamps: true,
+    indexes: [
+      { fields: ["voteSessionId"] },
+      { fields: ["voteSessionId", "voterKey"], unique: true, name: "unique_ballot_per_voter" },
+    ],
+  }
+);
 // Group-User many-to-many relationship
 User.belongsToMany(Group, { through: "GroupMembers" });
 Group.belongsToMany(User, { through: "GroupMembers" });
@@ -972,6 +1054,22 @@ MovieMonday.belongsTo(User, {
   foreignKey: "pickerUserId",
   as: "picker",
 });
+
+
+// Placeholder guest pickers
+Group.hasMany(GroupGuest, { foreignKey: "GroupId", as: "guests", constraints: false });
+GroupGuest.belongsTo(Group, { foreignKey: "GroupId", constraints: false });
+MovieMonday.belongsTo(GroupGuest, {
+  foreignKey: "pickerGuestId",
+  as: "pickerGuest",
+  constraints: false,
+});
+
+// Live voting
+MovieMonday.hasMany(VoteSession, { foreignKey: "movieMondayId", as: "voteSessions", constraints: false });
+VoteSession.belongsTo(MovieMonday, { foreignKey: "movieMondayId", constraints: false });
+VoteSession.hasMany(Ballot, { foreignKey: "voteSessionId", as: "ballots", constraints: false });
+Ballot.belongsTo(VoteSession, { foreignKey: "voteSessionId", constraints: false });
 
 // MovieSelection relationships
 MovieMonday.hasMany(MovieSelection, {
@@ -1165,4 +1263,7 @@ module.exports = {
   UserReview,
   UserFollow,
   MovieMondayRating,
+  GroupGuest,
+  VoteSession,
+  Ballot,
 };
