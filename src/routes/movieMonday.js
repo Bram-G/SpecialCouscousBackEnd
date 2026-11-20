@@ -34,7 +34,10 @@ const invalidateStatsCache = () => {
   statsCache.del(STATS_CACHE_KEY);
   allCache.flushAll();
   menuListCache.flushAll();
-  recommendationsCache.flushAll();
+    recommendationsCache.flushAll();
+  // Analytics charts + drill-downs share one per-group cache; lazy require
+  // avoids any load-order coupling between route modules.
+  require("./analytics").clearAnalyticsCache();
 };
 const toTitleCase = (str) => {
   if (!str || typeof str !== "string") return str;

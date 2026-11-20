@@ -63,17 +63,133 @@ function toStringArray(value) {
     .filter((v) => v && v !== "[]" && v !== "[ ]");
 }
 
-// Tiny in-memory TTL cache for the overview payload. Keyed by the sorted group
-// id set. Cleared automatically by TTL; safe to leave running on a single dyno.
-const OVERVIEW_TTL_MS = 60 * 1000;
-const overviewCache = new Map();
+// ---------------------------------------------------------------------------
+// Group data loader (shared by /overview and /movies drill-downs)
+// ---------------------------------------------------------------------------
+// One scoped read of everything the charts need, normalized into a compact
+// shape and cached per group set. Both the overview aggregation and the
+// drill-down lists are derived from this, so the numbers on a bar and the
+// posters in its modal always agree.
+//
+// Outcome rules (the single source of truth for every chart):
+//   won     -> selection.isWinner === true
+//   lost    -> not a winner AND its Monday has a winner (a decided night)
+//   pending -> Monday has no winner yet; excluded from won/lost counts
+const DATA_TTL_MS = 60 * 1000;
+const dataCache = new Map(); // key -> { at, data }
 
 function cacheKey(groupIds) {
   return [...groupIds].sort((a, b) => a - b).join(",");
 }
 
+function clearAnalyticsCache() {
+  dataCache.clear();
+}
+
+const norm = (s) => String(s || "").trim().toLowerCase();
+
+async function loadGroupData(groupIds) {
+  const key = cacheKey(groupIds);
+  const cached = dataCache.get(key);
+  if (cached && Date.now() - cached.at < DATA_TTL_MS) return cached.data;
+
+  const rows = await MovieMonday.findAll({
+    where: { GroupId: groupIds },
+    attributes: ["id", "date", "pickerUserId", "pickerGuestId"],
+    include: [
+      {
+        model: MovieSelection,
+        as: "movieSelections",
+        attributes: [
+          "id",
+          "tmdbMovieId",
+          "title",
+          "posterPath",
+          "releaseYear",
+          "genres",
+          "isWinner",
+        ],
+        include: [
+          { model: MovieCast, as: "cast", attributes: ["actorId", "name"] },
+          {
+            model: MovieCrew,
+            as: "crew",
+            attributes: ["personId", "name", "job"],
+          },
+        ],
+      },
+      { model: User, as: "picker", attributes: ["id", "username"] },
+      { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
+      {
+        model: MovieMondayEventDetails,
+        as: "eventDetails",
+        attributes: ["meals", "cocktails", "desserts"],
+      },
+    ],
+  });
+
+  const mondays = rows.map((mm) => {
+    const plain = mm.get({ plain: true });
+    const selections = plain.movieSelections || [];
+    const decided = selections.some((s) => s.isWinner);
+
+    const movies = selections.map((s) => {
+      // De-dupe people within one movie (an actor can hold several roles).
+      const actors = new Map();
+      for (const a of s.cast || []) {
+        if (a.actorId != null && !actors.has(a.actorId)) {
+          actors.set(a.actorId, { id: a.actorId, name: a.name });
+        }
+      }
+      const directors = new Map();
+      for (const c of s.crew || []) {
+        if (c.job === "Director" && !directors.has(c.personId)) {
+          directors.set(c.personId, { id: c.personId, name: c.name });
+        }
+      }
+      let genres = s.genres;
+      if (typeof genres === "string") {
+        try {
+          genres = JSON.parse(genres);
+        } catch {
+          genres = [];
+        }
+      }
+      return {
+        tmdbMovieId: s.tmdbMovieId,
+        title: s.title,
+        posterPath: s.posterPath,
+        releaseYear: s.releaseYear,
+        genres: Array.isArray(genres) ? genres.filter(Boolean) : [],
+        outcome: s.isWinner ? "won" : decided ? "lost" : "pending",
+        actors: [...actors.values()],
+        directors: [...directors.values()],
+      };
+    });
+
+    return {
+      id: plain.id,
+      date: plain.date,
+      decided,
+      pickerName: plain.picker
+        ? plain.picker.username
+        : plain.pickerGuest
+          ? plain.pickerGuest.name
+          : null,
+      meals: toStringArray(plain.eventDetails?.meals),
+      cocktails: toStringArray(plain.eventDetails?.cocktails),
+      desserts: toStringArray(plain.eventDetails?.desserts),
+      movies,
+    };
+  });
+
+  const data = { mondays };
+  dataCache.set(key, { at: Date.now(), data });
+  return data;
+}
+
 // ---------------------------------------------------------------------------
-// GET /overview  — curated aggregation for the graphs page
+// GET /overview  — curated aggregation for the graphs page + dashboard widget
 // ---------------------------------------------------------------------------
 router.get("/overview", authMiddleware, async (req, res) => {
   try {
@@ -84,224 +200,230 @@ router.get("/overview", authMiddleware, async (req, res) => {
       return res.json(emptyOverview());
     }
 
-    const key = cacheKey(groupIds);
-    const cached = overviewCache.get(key);
-    if (cached && Date.now() - cached.at < OVERVIEW_TTL_MS) {
-      return res.json(trimOverview(cached.data, limit));
-    }
-
-    // One scoped read of everything the overview needs.
-    const movieMondays = await MovieMonday.findAll({
-      where: { GroupId: groupIds },
-      attributes: ["id", "date", "pickerUserId", "pickerGuestId"],
-      include: [
-        {
-          model: MovieSelection,
-          as: "movieSelections",
-          attributes: ["id", "tmdbMovieId", "title", "isWinner"],
-          include: [
-            { model: MovieCast, as: "cast", attributes: ["actorId", "name"] },
-            {
-              model: MovieCrew,
-              as: "crew",
-              attributes: ["personId", "name", "job"],
-            },
-          ],
-        },
-        { model: User, as: "picker", attributes: ["id", "username"] },
-                { model: GroupGuest, as: "pickerGuest", attributes: ["id", "name"] },
-        {
-          model: MovieMondayEventDetails,
-          as: "eventDetails",
-          attributes: ["meals", "cocktails", "desserts"],
-        },
-      ],
-    });
-
-    const genres = {}; // name -> { count, wins }
-    const actors = {}; // id   -> { id, name, count, losses }
-    const directors = {}; // id -> { id, name, count }
-    const rejectedMovies = {}; // title -> { id, name, losses }
-    const pickers = {}; // username -> { id, name, winningPicks, totalPicks }
-    const meals = {};
-    const cocktails = {};
-    const desserts = {};
-
-    let totalMovies = 0;
-    let totalWinners = 0;
-    const totalMondays = movieMondays.length;
-
-    const bump = (bag, name, key2 = "count") => {
-      if (!bag[name]) bag[name] = { count: 0 };
-      bag[name][key2] = (bag[name][key2] || 0) + 1;
-    };
-
-    for (const mm of movieMondays) {
-      const plain = mm.get({ plain: true });
-      let mondayHasWinner = false;
-
-      for (const movie of plain.movieSelections || []) {
-        totalMovies++;
-        if (movie.isWinner) {
-          totalWinners++;
-          mondayHasWinner = true;
-        }
-
-        // Genres
-        const movieGenres = Array.isArray(movie.genres) ? movie.genres : [];
-        for (const g of movieGenres) {
-          if (!genres[g]) genres[g] = { count: 0, wins: 0 };
-          genres[g].count++;
-          if (movie.isWinner) genres[g].wins++;
-        }
-
-        // Actors (frequency + rejected = appearances on losers)
-        for (const a of movie.cast || []) {
-          if (!actors[a.actorId]) {
-            actors[a.actorId] = {
-              id: a.actorId,
-              name: a.name,
-              count: 0,
-              losses: 0,
-            };
-          }
-          actors[a.actorId].count++;
-          if (!movie.isWinner) actors[a.actorId].losses++;
-        }
-
-        // Directors (frequency)
-        for (const c of movie.crew || []) {
-          if (c.job !== "Director") continue;
-          if (!directors[c.personId]) {
-            directors[c.personId] = { id: c.personId, name: c.name, count: 0 };
-          }
-          directors[c.personId].count++;
-        }
-
-        // Rejected movies (non-winners, counted by title)
-        if (!movie.isWinner) {
-          if (!rejectedMovies[movie.title]) {
-            rejectedMovies[movie.title] = {
-              id: movie.tmdbMovieId,
-              name: movie.title,
-              losses: 0,
-            };
-          }
-          rejectedMovies[movie.title].losses++;
-        }
-      }
-
-      // Placeholder guests count too; their name is the key either way.
-      const pickerName = plain.picker
-        ? plain.picker.username
-        : plain.pickerGuest
-          ? plain.pickerGuest.name
-          : null;
-      if (pickerName) {
-        if (!pickers[pickerName]) {
-          pickers[pickerName] = {
-            id: plain.picker ? plain.picker.id : null,
-            name: pickerName,
-            winningPicks: 0,
-            totalPicks: 0,
-          };
-        }
-        pickers[pickerName].totalPicks++;
-        if (mondayHasWinner) pickers[pickerName].winningPicks++;
-      }
-
-      // Food & drink
-      if (plain.eventDetails) {
-        toStringArray(plain.eventDetails.meals).forEach((m) => bump(meals, m));
-        toStringArray(plain.eventDetails.cocktails).forEach((c) =>
-          bump(cocktails, c),
-        );
-        toStringArray(plain.eventDetails.desserts).forEach((d) =>
-          bump(desserts, d),
-        );
-      }
-    }
-
-    const data = {
-      totals: {
-        movieMondays: totalMondays,
-        movies: totalMovies,
-        winners: totalWinners,
-        uniqueGenres: Object.keys(genres).length,
-        uniqueActors: Object.keys(actors).length,
-        uniqueDirectors: Object.keys(directors).length,
-      },
-      genres: Object.entries(genres)
-        .map(([name, d]) => ({ name, count: d.count, wins: d.wins }))
-        .sort((a, b) => b.count - a.count),
-      topActors: Object.values(actors).sort((a, b) => b.count - a.count),
-      rejectedActors: Object.values(actors)
-        .filter((a) => a.losses > 0)
-        .map((a) => ({ id: a.id, name: a.name, losses: a.losses }))
-        .sort((a, b) => b.losses - a.losses),
-      topDirectors: Object.values(directors).sort((a, b) => b.count - a.count),
-      rejectedMovies: Object.values(rejectedMovies).sort(
-        (a, b) => b.losses - a.losses,
-      ),
-      pickers: Object.values(pickers).sort(
-        (a, b) => b.winningPicks - a.winningPicks,
-      ),
-      meals: Object.entries(meals)
-        .map(([name, d]) => ({ name, count: d.count }))
-        .sort((a, b) => b.count - a.count),
-      cocktails: Object.entries(cocktails)
-        .map(([name, d]) => ({ name, count: d.count }))
-        .sort((a, b) => b.count - a.count),
-      desserts: Object.entries(desserts)
-        .map(([name, d]) => ({ name, count: d.count }))
-        .sort((a, b) => b.count - a.count),
-    };
-
-    overviewCache.set(key, { at: Date.now(), data });
-    return res.json(trimOverview(data, limit));
+    const { mondays } = await loadGroupData(groupIds);
+    return res.json(trimOverview(buildOverview(mondays), limit));
   } catch (error) {
     console.error("Error generating analytics overview:", error);
     return res.status(500).json({ error: "Failed to generate analytics" });
   }
 });
 
-function emptyOverview() {
+function buildOverview(mondays) {
+  const genres = new Map(); // name -> { name, count }
+  const winningActors = new Map(); // id -> { id, name, wins }
+  const rejectedActors = new Map(); // id -> { id, name, losses }
+  const winningDirectors = new Map(); // id -> { id, name, wins }
+  const rejectedMovies = new Map(); // tmdbId -> { id, name, losses }
+  const pickers = new Map(); // name -> { name, winningPicks }
+  const meals = new Map();
+  const cocktails = new Map();
+  const desserts = new Map();
+
+  const bumpPerson = (bag, person, field) => {
+    const cur = bag.get(person.id) || { id: person.id, name: person.name, [field]: 0 };
+    cur[field]++;
+    bag.set(person.id, cur);
+  };
+  const bumpName = (bag, name) => {
+    const k = norm(name);
+    const cur = bag.get(k) || { name, count: 0 };
+    cur.count++;
+    bag.set(k, cur);
+  };
+
+  let watched = 0;
+  let rejected = 0;
+  const watchedActors = new Set();
+  const watchedDirectors = new Set();
+
+  for (const mm of mondays) {
+    for (const m of mm.movies) {
+      if (m.outcome === "won") {
+        watched++;
+        m.genres.forEach((g) => bumpName(genres, g));
+        m.actors.forEach((a) => {
+          bumpPerson(winningActors, a, "wins");
+          watchedActors.add(a.id);
+        });
+        m.directors.forEach((d) => {
+          bumpPerson(winningDirectors, d, "wins");
+          watchedDirectors.add(d.id);
+        });
+      } else if (m.outcome === "lost") {
+        rejected++;
+        m.actors.forEach((a) => bumpPerson(rejectedActors, a, "losses"));
+        const cur = rejectedMovies.get(m.tmdbMovieId) || {
+          id: m.tmdbMovieId,
+          name: m.title,
+          losses: 0,
+        };
+        cur.losses++;
+        rejectedMovies.set(m.tmdbMovieId, cur);
+      }
+    }
+
+    if (mm.decided && mm.pickerName) {
+      const cur = pickers.get(mm.pickerName) || {
+        name: mm.pickerName,
+        winningPicks: 0,
+      };
+      cur.winningPicks++;
+      pickers.set(mm.pickerName, cur);
+    }
+
+    mm.meals.forEach((x) => bumpName(meals, x));
+    mm.cocktails.forEach((x) => bumpName(cocktails, x));
+    mm.desserts.forEach((x) => bumpName(desserts, x));
+  }
+
+  const byDesc = (field) => (a, b) =>
+    b[field] - a[field] || String(a.name).localeCompare(String(b.name));
+
   return {
     totals: {
+      movieMondays: mondays.length,
+      moviesWatched: watched,
+      rejectedPicks: rejected,
+      uniqueGenres: genres.size,
+      uniqueActors: watchedActors.size,
+      uniqueDirectors: watchedDirectors.size,
+    },
+    genres: [...genres.values()].sort(byDesc("count")),
+    winningActors: [...winningActors.values()].sort(byDesc("wins")),
+    rejectedActors: [...rejectedActors.values()].sort(byDesc("losses")),
+    winningDirectors: [...winningDirectors.values()].sort(byDesc("wins")),
+    rejectedMovies: [...rejectedMovies.values()].sort(byDesc("losses")),
+    pickers: [...pickers.values()].sort(byDesc("winningPicks")),
+    meals: [...meals.values()].sort(byDesc("count")),
+    cocktails: [...cocktails.values()].sort(byDesc("count")),
+    desserts: [...desserts.values()].sort(byDesc("count")),
+  };
+}
+
+const OVERVIEW_LISTS = [
+  "genres",
+  "winningActors",
+  "rejectedActors",
+  "winningDirectors",
+  "rejectedMovies",
+  "pickers",
+  "meals",
+  "cocktails",
+  "desserts",
+];
+
+function emptyOverview() {
+  const out = {
+    totals: {
       movieMondays: 0,
-      movies: 0,
-      winners: 0,
+      moviesWatched: 0,
+      rejectedPicks: 0,
       uniqueGenres: 0,
       uniqueActors: 0,
       uniqueDirectors: 0,
     },
-    genres: [],
-    topActors: [],
-    rejectedActors: [],
-    topDirectors: [],
-    rejectedMovies: [],
-    pickers: [],
-    meals: [],
-    cocktails: [],
-    desserts: [],
   };
+  OVERVIEW_LISTS.forEach((k) => (out[k] = []));
+  return out;
 }
 
-// Cache stores the full sorted lists; trim to top-N per request.
 function trimOverview(data, limit) {
-  return {
-    totals: data.totals,
-    genres: data.genres.slice(0, limit),
-    topActors: data.topActors.slice(0, limit),
-    rejectedActors: data.rejectedActors.slice(0, limit),
-    topDirectors: data.topDirectors.slice(0, limit),
-    rejectedMovies: data.rejectedMovies.slice(0, limit),
-    pickers: data.pickers.slice(0, limit),
-    meals: data.meals.slice(0, limit),
-    cocktails: data.cocktails.slice(0, limit),
-    desserts: data.desserts.slice(0, limit),
-  };
+  const out = { totals: data.totals };
+  OVERVIEW_LISTS.forEach((k) => (out[k] = data[k].slice(0, limit)));
+  return out;
 }
+
+// ---------------------------------------------------------------------------
+// GET /movies  — drill-down list behind a chart bar / slice
+// ---------------------------------------------------------------------------
+// ?type=genre|actor|director|movie|picker|meal|cocktail|dessert
+// &key=<person id, tmdb id, or name>
+// &outcome=won|lost|all   (default: won)
+//
+// Returns one entry per distinct movie with how many times it matched, so the
+// modal can show a single poster with an "×3" badge instead of three copies.
+router.get("/movies", authMiddleware, async (req, res) => {
+  try {
+    const groupIds = resolveGroupIds(req);
+    const type = String(req.query.type || "").toLowerCase();
+    const rawKey = String(req.query.key || "").trim();
+    const outcome = ["won", "lost", "all"].includes(req.query.outcome)
+      ? req.query.outcome
+      : "won";
+
+    if (!rawKey) return res.status(400).json({ error: "key is required" });
+    if (groupIds.length === 0) return res.json({ movies: [] });
+
+    const { mondays } = await loadGroupData(groupIds);
+    const keyNum = Number(rawKey);
+    const keyName = norm(rawKey);
+
+    const movieMatches = {
+      genre: (m) => m.genres.some((g) => norm(g) === keyName),
+      actor: (m) => m.actors.some((a) => a.id === keyNum),
+      director: (m) => m.directors.some((d) => d.id === keyNum),
+      movie: (m) => m.tmdbMovieId === keyNum,
+    }[type];
+
+    const mondayMatches = {
+      picker: (mm) => norm(mm.pickerName) === keyName,
+      meal: (mm) => mm.meals.some((x) => norm(x) === keyName),
+      cocktail: (mm) => mm.cocktails.some((x) => norm(x) === keyName),
+      dessert: (mm) => mm.desserts.some((x) => norm(x) === keyName),
+    }[type];
+
+    if (!movieMatches && !mondayMatches) {
+      return res.status(400).json({ error: `Unknown drill-down type: ${type}` });
+    }
+
+    const outcomeOk = (m) =>
+      outcome === "all" ? m.outcome !== "pending" : m.outcome === outcome;
+
+    const grouped = new Map(); // tmdbId -> entry
+    for (const mm of mondays) {
+      if (mondayMatches && !mondayMatches(mm)) continue;
+      for (const m of mm.movies) {
+        if (movieMatches && !movieMatches(m)) continue;
+        if (!outcomeOk(m)) continue;
+
+        const cur = grouped.get(m.tmdbMovieId) || {
+          tmdbMovieId: m.tmdbMovieId,
+          title: m.title,
+          posterPath: m.posterPath,
+          releaseYear: m.releaseYear,
+          count: 0,
+          wins: 0,
+          losses: 0,
+          lastDate: null,
+        };
+        cur.count++;
+        if (m.outcome === "won") cur.wins++;
+        if (m.outcome === "lost") cur.losses++;
+        if (!cur.lastDate || (mm.date && mm.date > cur.lastDate)) {
+          cur.lastDate = mm.date;
+        }
+        grouped.set(m.tmdbMovieId, cur);
+      }
+    }
+
+    const movies = [...grouped.values()].sort(
+      (a, b) =>
+        b.count - a.count ||
+        String(b.lastDate || "").localeCompare(String(a.lastDate || "")),
+    );
+
+    return res.json({
+      type,
+      key: rawKey,
+      outcome,
+      totalSelections: movies.reduce((s, m) => s + m.count, 0),
+      movies,
+    });
+  } catch (error) {
+    console.error("Error generating analytics drill-down:", error);
+    return res.status(500).json({ error: "Failed to load movies" });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /table/:type  — paginated, sortable, filterable table data
@@ -777,3 +899,4 @@ function groupBy(arr, keyFn) {
 }
 
 module.exports = router;
+module.exports.clearAnalyticsCache = clearAnalyticsCache;
